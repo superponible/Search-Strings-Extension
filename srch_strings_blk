@@ -3,11 +3,19 @@
 FSSTAT_CMD="/usr/local/bin/fsstat"
 GREP_CMD="/bin/grep"
 AWK_CMD="/usr/bin/awk"
+BC_CMD="/usr/bin/bc"
+PASTE_CMD="/usr/bin/paste"
+RM_CMD="/bin/rm"
 
 usage()
 {
 cat << EOF
 usage: $0 [-h] [-b blocksize] [-i imagefile] [-o outfile] -s srch_strings_output 
+
+srch_strngs_blk expects the first column of srch_strings_output to be the offset in bytes of
+	the string given in decimal (-t d argument to srch_strings).  It will output the file
+	with an additional two columns in front: the block the string is in, and the offset
+	in bytes within that block.
 
 OPTIONS:
    -h      Print this help message
@@ -71,34 +79,15 @@ then
 	fi
 fi
 
-awk '{print $1"/'$BLOCKSIZE'"}' $STRINGS | bc > srch_blocks.tmp 
-awk '{print $1"%'$BLOCKSIZE'"}' $STRINGS | bc > srch_offset.tmp 
+$AWK_CMD '{print $1"/'$BLOCKSIZE'"}' $STRINGS | $BC_CMD > srch_blocks.tmp 
+$AWK_CMD '{print $1"%'$BLOCKSIZE'"}' $STRINGS | $BC_CMD > srch_offset.tmp 
 if [[ -z $OUTFILE ]]
 then
-	paste srch_blocks.tmp srch_offset.tmp | paste - $STRINGS
+	$PASTE_CMD srch_blocks.tmp srch_offset.tmp | $PASTE_CMD - $STRINGS
 else
-	paste srch_blocks.tmp srch_offset.tmp | paste - $STRINGS > $OUTFILE
+	$PASTE_CMD srch_blocks.tmp srch_offset.tmp | $PASTE_CMD - $STRINGS > $OUTFILE
 fi
-rm srch_blocks.tmp
-rm srch_offset.tmp
+$RM_CMD srch_blocks.tmp
+$RM_CMD srch_offset.tmp
 
-#args="$@"
-#blocksize=""
-#dirtywords=""
-
-#while [ "$args" != "" ] 
-#do
-#	echo "$@"
-#	shift
-#	args="$@"
-#done
-
-#orig="$@"
-#blocksize=$1
-#shift 
-#srch="$@"
-
-#srch_strings $srch > srch.tmp
-#awk '{print $1"/'$blocksize'"}' srch.tmp | bc > blocks.tmp
-#awk '{print $1"%'$blocksize'"}' srch.tmp | bc > offset.tmp
-#paste blocks.tmp offset.tmp | paste - srch.tmp
+exit 0
