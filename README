@@ -1,0 +1,62 @@
+During FOR508, I kept getting tired of having to divide the byte location of
+the string from the output of srch_strings, by the block size.  I figured 
+out a way to use bc on the command line on a case-by-case basis, but figured
+it'd be easier to just have a couple scripts that could output in that
+format.
+
+==============================================================================
+
+srch_strings_blk
+
+This script requires a file as input (-s) which is the output of a 
+srch_strings command run with the "-t d" option to produce the byte
+location of the string in the original file.  Additionally, if the
+blocksize is known, specify it with -b.  Otherwise, the original image file
+can be specified with -i and the script will determine the block size
+using fsstat
+
+Example:
+
+# srch_strings -a -t d -e l filesystem.img > strings.out
+# srch_strings_blk -i filesystem.img -s strings.out
+OR
+# srch_strings_blk -b 4096 -s strings.out
+
+The script will output to stdout or to the file specified with -o.
+
+Note, if -b and -i are both specified, the argument given in -b will be used.
+
+==============================================================================
+
+srch_strings_pipe
+
+This script can be used in a pipeline following srch_strings.  It only
+takes the -b argument for the block size and the -o argument for the optional
+output file.
+
+Example:
+
+# srch_strings -a -t d -e l filesystem.img | srch_strings_pipe -b 4096
+
+==============================================================================
+
+srch_strings_wrap [under development]
+
+This script is a wrapper around the regular srch_strings.  It will pass all 
+arguments to srch_strings and execute it normally.  If the -b option is 
+specified, after running srch_strings, it will calculate the block like the 
+other scripts do.  If -b is not specified, or if it is but "-t d" is not
+used, then this script will just run as srch_strings normally does.
+
+Example:
+
+# srch_strings_wrap -b 4096 -a -t -d -e l filesystem.img
+
+This would be equivalent to 
+
+# srch_strings -a -t d -e l filesystem.img | srch_strings_pipe -b 4096
+
+and 
+
+# srch_strings -a -t d -e l filesystem.img > strings.out
+# srch_strings_blk -i filesystem.img -s strings.out
