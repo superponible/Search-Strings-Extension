@@ -1,0 +1,104 @@
+#!/bin/bash
+
+FSSTAT_CMD="/usr/local/bin/fsstat"
+GREP_CMD="/bin/grep"
+AWK_CMD="/usr/bin/awk"
+
+usage()
+{
+cat << EOF
+usage: $0 [-h] [-b blocksize] [-i imagefile] [-o outfile] -s srch_strings_output 
+
+OPTIONS:
+   -h      Print this help message
+   -b      block size of filesystem in imagefile (not needed if -i is used)
+   -i      imagefile (will use fsstat to determine block size)
+   -s	   output of srch_strings run with "-t d" option
+   -o	   output file, will output to stdout if not specified
+EOF
+}
+
+BLOCKSIZE=
+IMAGE=
+STRINGS=
+OUTFILE=
+while getopts “hb:i:s:o:” OPTION; do
+     case $OPTION in
+         h)
+             usage
+             exit 1
+             ;;
+         b)
+             BLOCKSIZE=$OPTARG
+             ;;
+         i)
+             IMAGE=$OPTARG
+             ;;
+         s)
+             STRINGS=$OPTARG
+             ;;
+	 o)
+	     OUTFILE=$OPTARG
+	     ;;
+         \?)
+             usage
+             exit
+             ;;
+     esac
+done
+
+if [[ -z $STRINGS ]]
+then
+     usage
+     exit 1
+fi
+
+if [[ -z $BLOCKSIZE ]]
+then
+	if [[ -z $IMAGE ]]
+	then
+		usage
+		exit 1
+	else
+		$FSSTAT_CMD $IMAGE > /dev/null 2>&1
+		if [[ $? == 0 ]]
+		then	
+			BLOCKSIZE=$($FSSTAT_CMD $IMAGE | $GREP_CMD "Block Size" | $AWK_CMD '{print $3}')
+		else
+			echo "Cannot determine filesystem type. Use the -b option if you know the blocksize."
+			exit 1
+		fi
+	fi
+fi
+
+awk '{print $1"/'$BLOCKSIZE'"}' $STRINGS | bc > srch_blocks.tmp 
+awk '{print $1"%'$BLOCKSIZE'"}' $STRINGS | bc > srch_offset.tmp 
+if [[ -z $OUTFILE ]]
+then
+	paste srch_blocks.tmp srch_offset.tmp | paste - $STRINGS
+else
+	paste srch_blocks.tmp srch_offset.tmp | paste - $STRINGS > $OUTFILE
+fi
+rm srch_blocks.tmp
+rm srch_offset.tmp
+
+#args="$@"
+#blocksize=""
+#dirtywords=""
+
+#while [ "$args" != "" ] 
+#do
+#	echo "$@"
+#	shift
+#	args="$@"
+#done
+
+#orig="$@"
+#blocksize=$1
+#shift 
+#srch="$@"
+
+#srch_strings $srch > srch.tmp
+#awk '{print $1"/'$blocksize'"}' srch.tmp | bc > blocks.tmp
+#awk '{print $1"%'$blocksize'"}' srch.tmp | bc > offset.tmp
+#paste blocks.tmp offset.tmp | paste - srch.tmp
