@@ -1,0 +1,70 @@
+#!/bin/bash
+
+FSSTAT_CMD="/usr/local/bin/fsstat"
+GREP_CMD="/bin/grep"
+AWK_CMD="/usr/bin/awk"
+BC_CMD="/usr/bin/bc"
+PASTE_CMD="/usr/bin/paste"
+RM_CMD="/bin/rm"
+
+usage()
+{
+cat << EOF
+usage: $0 [-h] -b blocksize  
+
+$0 can be used in a pipeline to add the block number and offset within the block to 
+	"srch_strings -t d". Reads from stdin.
+
+OPTIONS:
+   -h      Print this help message
+   -b      block size of filesystem in imagefile (not needed if -i is used)
+   -o	   output file, will output to stdout if not specified
+EOF
+}
+
+BLOCKSIZE=
+OUTFILE=
+while getopts “hb:o:” OPTION; do
+     case $OPTION in
+         h)
+             usage
+             exit 1
+             ;;
+         b)
+             BLOCKSIZE=$OPTARG
+             ;;
+	 o)
+	     OUTFILE=$OPTARG
+	     ;;
+         \?)
+             usage
+             exit
+             ;;
+     esac
+done
+
+if [[ -z $BLOCKSIZE ]]
+then
+	usage
+	exit 1
+fi
+
+$RM_CMD srch_blocks.tmp
+$RM_CMD srch_offset.tmp
+$RM_CMD srch_strings.tmp
+while read data; do
+	echo $data | $AWK_CMD '{print $1"/'$BLOCKSIZE'"}' | $BC_CMD >> srch_blocks.tmp 
+	echo $data | $AWK_CMD '{print $1"%'$BLOCKSIZE'"}' | $BC_CMD >> srch_offset.tmp 
+	echo $data >> srch_strings.tmp
+done
+if [[ -z $OUTFILE ]]
+then
+	$PASTE_CMD srch_blocks.tmp srch_offset.tmp | $PASTE_CMD - srch_strings.tmp
+else
+	$PASTE_CMD srch_blocks.tmp srch_offset.tmp | $PASTE_CMD - srch_strings.tmp > $OUTFILE
+fi
+$RM_CMD srch_blocks.tmp
+$RM_CMD srch_offset.tmp
+$RM_CMD srch_strings.tmp
+
+exit 0

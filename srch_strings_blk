@@ -12,8 +12,9 @@ usage()
 cat << EOF
 usage: $0 [-h] [-b blocksize] [-i imagefile] [-o outfile] -s srch_strings_output 
 
-srch_strngs_blk expects the first column of srch_strings_output to be the offset in bytes of
-	the string given in decimal (-t d argument to srch_strings).  It will output the file
+$0 must be used with an output file from srch_strings (supplied with the -s argument)
+	$0 expects the first column of srch_strings_output to be the offset in bytes of
+	the string given in decimal ("-t d" argument to srch_strings).  It will output the file
 	with an additional two columns in front: the block the string is in, and the offset
 	in bytes within that block.
 
