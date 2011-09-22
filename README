@@ -40,13 +40,16 @@ Example:
 
 ==============================================================================
 
-srch_strings_wrap [under development]
+srch_strings_wrap
 
 This script is a wrapper around the regular srch_strings.  It will pass all 
 arguments to srch_strings and execute it normally.  If the -b option is 
 specified, after running srch_strings, it will calculate the block like the 
-other scripts do.  If -b is not specified, or if it is but "-t d" is not
-used, then this script will just run as srch_strings normally does.
+other scripts do.  If -b is not specified, srch_strings will run as it 
+normally does.  If -b is specified but "-t d" is not used, then an 
+error will be displayed.  
+
+Files can be specified, otherwise stdin is used for input.
 
 Example:
 
