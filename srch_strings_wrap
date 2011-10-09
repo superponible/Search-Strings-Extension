@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Written by: Dave Lassalle
+# A wrapper around srch_strings.  This can be used in place of srch_strings,
+#   and will forward all command line options to srch_strings.  If -b
+#   is specified and the proper srch_strings args were given, it will
+#   add block number and byte offset within the block to the output of
+#   srch_strings.
+
 AWK_CMD="/usr/bin/awk"
 BC_CMD="/usr/bin/bc"
 PASTE_CMD="/usr/bin/paste"

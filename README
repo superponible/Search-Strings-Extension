@@ -4,6 +4,8 @@ out a way to use bc on the command line on a case-by-case basis, but figured
 it'd be easier to just have a couple scripts that could output in that
 format.
 
+- Dave Lassalle, dave@superponible.com
+
 ==============================================================================
 
 srch_strings_blk

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Written by: Dave Lassalle
+# Accepts srch_strings output in a pipeline and adds block number and 
+#   byte offset within the block to the output 
+
 FSSTAT_CMD="/usr/local/bin/fsstat"
 GREP_CMD="/bin/grep"
 AWK_CMD="/usr/bin/awk"

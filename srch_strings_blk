@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Written by: Dave Lassalle
+# Adds block and byte offset in block to a file containing srch_strings 
+#   output
+
 FSSTAT_CMD="/usr/local/bin/fsstat"
 GREP_CMD="/bin/grep"
 AWK_CMD="/usr/bin/awk"
