@@ -11,7 +11,6 @@
 #TODO
 #Group output
 #-o in such_blk script.
-#option to take argument of string or file and apply grep to filter results
 #option to automatically carve unallocated blocks on a match, warn about time, use on dirty word
 #use fib to recover file based on block found
 
@@ -29,10 +28,11 @@ my $istat_cmd = "/usr/local/bin/istat";
 my $ffind_cmd = "/usr/local/bin/ffind";
 my $mmls_cmd = "/usr/local/bin/mmls";
 my $dd_cmd = "/bin/dd";
+my $grep_cmd = "/bin/grep";
 
 my @original_args = @ARGV;
 my %opts = ();
-getopts('hb:dHF:Cg:G:l:AI:afn:t:oe:v', \%opts);
+getopts('hb:dHF:Cg:G:il:AI:afn:t:oe:v', \%opts);
 my @files = @ARGV;				# should be the file arguments
 
 my $blksize = 0;
@@ -69,6 +69,20 @@ if ($level < 1 || $level > 3) {
 	usage();
 	exit(1);
 }
+
+my $grep_case = "";
+$grep_case = " -i " if ($opts{'i'});
+
+my $grep_srch_cmd = "";
+if ($opts{'g'} && $opts{'G'}) {
+	usage();
+	exit(1);
+} elsif ($opts{'g'}) {
+	$grep_srch_cmd = " | $grep_cmd $grep_case '$opts{'g'}'"; 
+} elsif ($opts{'G'}) {
+	$grep_srch_cmd = " | $grep_cmd $grep_case -f '$opts{'G'}'";
+}
+
 
 # set img type to Disk or Filesystem, F is default
 $img_type = $opts{'I'} if ($opts{'I'});
@@ -126,6 +140,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 		my %part_skip = ();
 		my %part_count = ();
 		if ($img_type eq "D") {
+			print "$mm_cmd\n";
 			open (MM_OUT, "$mm_cmd |") || die "$mm_cmd: $!\n";
 			while (<MM_OUT>) {
 				next if (/\(0x82\)$/);
@@ -136,6 +151,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 					$part_count{$1} = $3;
 				}
 			}
+			close MM_OUT;
 		} else {
 			$part_skip{'0'} = 0;
 			$part_count{'0'} = "9999999999999999999";	
@@ -144,16 +160,18 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 		while (my ($key,$val) = each(%part_skip)) {
 			# if -d specified, use fsstat to get block size
 			if ($opts{'d'}) {
-				open (FS, "$fsstat_cmd -o $part_skip{$key} $file |") || die "$fsstat_cmd $file: $!\n";
+				my $fs_cmd = "$fsstat_cmd -o $part_skip{$key} $file\n";
+				open (FS, "$fs_cmd |") || die "$fs_cmd: $!\n";
 				while (<FS>) {
-					next unless (/Block Size: (\d+)/);
-					$blksize = $1;
+					next unless (/(Cluster|Block) Size: (\d+)/);
+					$blksize = $2;
 					last;	
 				}
+				close FS;
 			}
 
 			# run srch_strings with arguments and pipe output
-			my $ss_cmd = "$dd_cmd if=$file skip=$part_skip{$key} status=noxfer bs=$sector count=$part_count{$key} 2>/dev/null | $srch_strings_cmd $srch_strings_args";
+			my $ss_cmd = "$dd_cmd if=$file skip=$part_skip{$key} status=noxfer bs=$sector count=$part_count{$key} 2>/dev/null | $srch_strings_cmd $srch_strings_args $grep_srch_cmd";
 			open (SS_OUT, "$ss_cmd |") || die "$ss_cmd: $!\n";
 	
 			# loop through search strings output
@@ -222,6 +240,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
                                 			open(FF, "$ffind_cmd -o $part_skip{$key} $file $inode{$blk} |") || die "$ffind_cmd $file $inode{$blk}: $!\n";
                                 			while (<FF>) {
                                         			chomp;
+								s/^\* /DELETED\//;
                                                			$filename{$inode{$blk}} = $_;
                                         			last;
                                 			}
@@ -258,14 +277,8 @@ print <<EOF;
 usage: $scriptname [OPTION(s)] [FILE(s)]
 
 $scriptname is a wrapper for the srch_strings command and can be used in its place.
-
+	Must give -b or -d, plus "-t d" options for extra functionality.
 Basic example: $scriptname -d -a -t d file.img
-
-The -b or -d options enable the additional functionality.
-If -b or -d is used and "-t d" is not given, this script will fail.  
-If neither -b nor -d is given, this functions as standard srch_strings.
-
-The -number argument does not work.  Use "-n number" instead.
 
 OPTIONS (wrapper specific):
    -h      	     Print this help message
@@ -276,6 +289,7 @@ OPTIONS (wrapper specific):
    -C		     Output in CSV, with quotes to handle spaces
    -g string	     string to pass to grep to limit results - TODO
    -G file	     file of dirty words to pass to grep to limit results - TODO
+   -i		     ignore case on grep
    -l level	     level of layers to lookup into
 			1 = print block and block allocation status
 			2 = print inode and inode allocation status
@@ -289,7 +303,8 @@ OPTIONS (standard srch_strings options)
    -a -              Scan the entire file, not just the data section
    -f     	     Print the name of the file before each string
    -n number         Locate & print any NUL-terminated sequence of at
-   -<number>         least [number] characters (default 4).
+			least [number] characters (default 4).
+   -<number>         DOES NOT WORK WITH WRAPPER 
    -t {o,x,d}        Print the location of the string in base 8, 10 or 16
    -o                An alias for --radix=o
    -e {s,S,b,l,B,L}  Select character size and endianness:
@@ -309,8 +324,8 @@ sub strip_custom_args {
 		if (/-[bFgGlI]/) {
 			# skip -b, -F, -g, -G, -l, -I and next argument
 			$skip = 1;
-		} elsif ($skip == 1 || /-[dHCA]/) {
-			# skip argument after -b or skip -d, -H, -C, -A
+		} elsif ($skip == 1 || /-[dHCAi]/) {
+			# skip argument after -b or skip -d, -H, -C, -A, -i
 			$skip = 0;
 		} elsif ($_ eq $first) {
 			# match the first file argument, so stop
