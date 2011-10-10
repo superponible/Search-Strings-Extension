@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Written by: Dave Lassalle
+# Written by: Dave Lassalle, @superponible
 # Additional code and ideas by: Hal Pomeranz
 # 
 # A wrapper around srch_strings.  This can be used in place of srch_strings,
