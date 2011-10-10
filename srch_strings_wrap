@@ -36,67 +36,17 @@ getopts('hb:dHF:Cg:G:il:AI:afn:t:oe:v', \%opts);
 my @files = @ARGV;				# should be the file arguments
 
 my $blksize = 0;
-my $base;
+my $base = "";
 my $delim = "\t";
 my $level = 3;
 my $dd_skip = "";
 my $dd_count = "";
 my $img_type = "F";
-
-# help flag given
-if ($opts{'h'} == 1) {
-	usage();
-	exit(1);
-}
-#blocksize specifed
-if ($opts{'b'}) {
-	$blksize = $opts{'b'};
-	# -b given with no argument
-	if ($blksize =~ /^-|[^\d]/) {
-		usage();
-		exit(1);
-	}
-}
-# -t specified, store base in $base
-$base = $opts{'t'} if ($opts{'t'});
-
-# custom delimiter specified
-$delim = $opts{'F'} if ($opts{'F'});
-
-# level of lookup to perform
-$level = $opts{'l'} if ($opts{'l'});
-if ($level < 1 || $level > 3) {
-	usage();
-	exit(1);
-}
-
 my $grep_case = "";
-$grep_case = " -i " if ($opts{'i'});
-
 my $grep_srch_cmd = "";
-if ($opts{'g'} && $opts{'G'}) {
-	usage();
-	exit(1);
-} elsif ($opts{'g'}) {
-	$grep_srch_cmd = " | $grep_cmd $grep_case '$opts{'g'}'"; 
-} elsif ($opts{'G'}) {
-	$grep_srch_cmd = " | $grep_cmd $grep_case -f '$opts{'G'}'";
-}
-
-
-# set img type to Disk or Filesystem, F is default
-$img_type = $opts{'I'} if ($opts{'I'});
-if ($img_type ne "D" && $img_type ne "F") {
-	usage();
-	exit(1);
-}
-
-# csv mode, set delimiter to comma
 my $csv = "";
-if ($opts{'C'}) {
-	$delim = ",";
-	$csv = "\"";
-}
+
+parseopts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$img_type,\$csv);
 
 if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 	# no -d or -b, or no -d and -b invalid, so run regular srch_strings
@@ -105,28 +55,12 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 	print while (<SS>);
 	close SS;
 } else {
-	# either valid -b or -d specified
-	if ($base ne "d") {
-		# base was not decimal
-		print "Must use \"-t d\" with -b or -d option.\n\n";
-		usage();
-		exit(1);
-	}
+	check_base($base);		# check that -t d was specified
+
 	# Get argument list to pass to srch_strings
 	my $srch_strings_args = &strip_custom_args($files[0], @original_args);
 	
-	# print header if -H specified
-	if ($opts{'H'}) {
-		my $filename_print = "";
-		if ($opts{'f'}) {
-			$filename_print = "${csv}IMG FILE${csv}${delim}";
-		}
-		print "${filename_print}${csv}FILENAME${csv}${delim}${csv}ISTATUS${csv}${delim}${csv}INODE${csv}${delim}${csv}BSTATUS${csv}${delim}${csv}BLOCK${csv}${delim}${csv}OFFSET${csv}${delim}${csv}BYTE OFFSET${csv}${delim}${csv}STRING${csv}\n";
-		my $partition_print = "";
-		if ($opts{'I'} eq "D") {
-			$partition_print = "${csv}PARTITION${csv}${delim}";
-		}
-	}
+	print_header(\%opts,\$csv,\$delim);
 
 	# loop through each of the file arguments at the end of the command line
 	foreach (@files) {
@@ -140,7 +74,6 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 		my %part_skip = ();
 		my %part_count = ();
 		if ($img_type eq "D") {
-			print "$mm_cmd\n";
 			open (MM_OUT, "$mm_cmd |") || die "$mm_cmd: $!\n";
 			while (<MM_OUT>) {
 				next if (/\(0x82\)$/);
@@ -273,7 +206,7 @@ exit 0;
 	
 # print usage statement
 sub usage {
-print <<EOF;
+	print <<EOF;
 usage: $scriptname [OPTION(s)] [FILE(s)]
 
 $scriptname is a wrapper for the srch_strings command and can be used in its place.
@@ -336,4 +269,92 @@ sub strip_custom_args {
 		} 
 	}
 	return $srch_strings_args;
+}
+
+sub parseopts {
+	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$img_type,$csv) = @_;
+	my $opts = %$opts_ref;	
+
+	# help flag given
+	if ($opts{'h'} == 1) {
+		usage();
+		exit(1);
+	}
+	#blocksize specifed
+	if ($opts{'b'}) {
+		$$blksize = $opts{'b'};
+		# -b given with no argument
+		if ($$blksize =~ /^-|[^\d]/) {
+			usage();
+			exit(1);
+		}
+	}
+	# -t specified, store base in $base
+	$$base = $opts{'t'} if ($opts{'t'});
+	
+	# custom delimiter specified
+	$$delim = $opts{'F'} if ($opts{'F'});
+	
+	# level of lookup to perform
+	$$level = $opts{'l'} if ($opts{'l'});
+	if ($$level < 1 || $$level > 3) {
+		usage();
+		exit(1);
+	}
+	
+	$$grep_case = " -i " if ($opts{'i'});
+
+	if ($opts{'g'} && $opts{'G'}) {
+		usage();
+		exit(1);
+	} elsif ($opts{'g'}) {
+		$$grep_srch_cmd = " | $grep_cmd $$grep_case '$opts{'g'}'"; 
+	} elsif ($opts{'G'}) {
+		$$grep_srch_cmd = " | $grep_cmd $$grep_case -f '$opts{'G'}'";
+	}
+	
+	
+	# set img type to Disk or Filesystem, F is default
+	$$img_type = $opts{'I'} if ($opts{'I'});
+	if ($$img_type ne "D" && $$img_type ne "F") {
+		usage();
+		exit(1);
+	}
+	
+	# csv mode, set delimiter to comma
+	if ($opts{'C'}) {
+		$$delim = ",";
+		$$csv = "\"";
+	}
+}
+
+sub check_base {
+	my $base = $_[0];
+	# either valid -b or -d specified
+	if ($base ne "d") {
+		# base was not decimal
+		print "Must use \"-t d\" with -b or -d option.\n\n";
+		usage();
+		exit(1);
+	}
+}
+
+sub print_header {
+	my ($opts_ref,$csv_ref,$delim_ref) = @_;
+	my $opts = %$opts_ref;
+	my $csv = $$csv_ref;
+	my $delim_ref = $$delim_ref;
+
+	# print header if -H specified
+	if ($opts{'H'}) {
+		my $filename_print = "";
+		if ($opts{'f'}) {
+			$filename_print = "${csv}IMG FILE${csv}${delim}";
+		}
+		print "${filename_print}${csv}FILENAME${csv}${delim}${csv}ISTATUS${csv}${delim}${csv}INODE${csv}${delim}${csv}BSTATUS${csv}${delim}${csv}BLOCK${csv}${delim}${csv}OFFSET${csv}${delim}${csv}BYTE OFFSET${csv}${delim}${csv}STRING${csv}\n";
+		my $partition_print = "";
+		if ($opts{'I'} eq "D") {
+			$partition_print = "${csv}PARTITION${csv}${delim}";
+		}
+	}
 }
