@@ -8,6 +8,16 @@
 #   or -d is specified along with "-t d", the additional functionality of
 #   this script is available; otherwise, it will just run as normal.
 
+#TODO
+#Group output
+#-o in such_blk script.
+#option to take argument of string or file and apply grep to filter results
+#option to automatically carve unallocated blocks on a match, warn about time, use on dirty word
+#use fib to recover file based on block found
+
+use strict;
+use Getopt::Std;
+
 my $scriptname = "srch_strings_wrap";
 
 # filesystem commands used in script
@@ -17,57 +27,21 @@ my $fsstat_cmd = "/usr/local/bin/fsstat";
 my $ifind_cmd = "/usr/local/bin/ifind";
 my $istat_cmd = "/usr/local/bin/istat";
 my $ffind_cmd = "/usr/local/bin/ffind";
-
-# print usage statement
-sub usage {
-print <<EOF;
-usage: $scriptname [OPTION(s)] [FILE(s)]
-[-h] [-b blocksize] [-d] [-H] [-F delim] [-C] [srch_strings options] [file(s)]
-
-$scriptname is a wrapper for the srch_strings command and can be used in its place.
-
-The -b or -d options enable the additional functionality.
-If -b or -d is used and "-t d" is not given, this script will fail.  
-If neither -b nor -d is given, this functions as standard srch_strings.
-
-The -number argument does not work.  Use "-n number" instead.
-
-OPTIONS (wrapper specific):
-   -h      	     Print this help message
-   -b blocksize      block size of filesystem in imagefile(s)
-   -d		     Determine block size of each file argument using fsstat
-   -H 		     Print a header line
-   -F delim  	     Delimiter in output, default is tab 
-   -C		     Output in CSV, with quotes to handle spaces
-   -O offset	     offset of partition start if FILE is a disk image
-			(only 1 FILE argument allowed with -O)
-
-OPTIONS (standard srch_strings options)
-   -a -              Scan the entire file, not just the data section
-   -f     	     Print the name of the file before each string
-   -n number         Locate & print any NUL-terminated sequence of at
-   -<number>         least [number] characters (default 4).
-   -t {o,x,d}        Print the location of the string in base 8, 10 or 16
-   -o                An alias for --radix=o
-   -e {s,S,b,l,B,L}  Select character size and endianness:
-                        s = 7-bit, S = 8-bit, {b,l} = 16-bit, {B,L} = 32-bit
-   -h                Display this information
-   -v                Print the program's version number
-
-EOF
-}
-
-use strict;
-use Getopt::Std;
+my $mmls_cmd = "/usr/local/bin/mmls";
+my $dd_cmd = "/bin/dd";
 
 my @original_args = @ARGV;
 my %opts = ();
-getopts('hb:dHCF:afn:ot:e:v', \%opts);
+getopts('hb:dHF:Cg:G:l:AI:afn:t:oe:v', \%opts);
 my @files = @ARGV;				# should be the file arguments
 
 my $blksize = 0;
 my $base;
 my $delim = "\t";
+my $level = 3;
+my $dd_skip = "";
+my $dd_count = "";
+my $img_type = "F";
 
 # help flag given
 if ($opts{'h'} == 1) {
@@ -84,13 +58,25 @@ if ($opts{'b'}) {
 	}
 }
 # -t specified, store base in $base
-if ($opts{'t'}) {
-	$base = $opts{'t'};
-}
+$base = $opts{'t'} if ($opts{'t'});
+
 # custom delimiter specified
-if ($opts{'F'}) {
-	$delim = $opts{'F'};
+$delim = $opts{'F'} if ($opts{'F'});
+
+# level of lookup to perform
+$level = $opts{'l'} if ($opts{'l'});
+if ($level < 1 || $level > 3) {
+	usage();
+	exit(1);
 }
+
+# set img type to Disk or Filesystem, F is default
+$img_type = $opts{'I'} if ($opts{'I'});
+if ($img_type ne "D" && $img_type ne "F") {
+	usage();
+	exit(1);
+}
+
 # csv mode, set delimiter to comma
 my $csv = "";
 if ($opts{'C'}) {
@@ -103,6 +89,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 	#  with other arguments
 	open (SS, "$srch_strings_cmd @original_args |") or die "$srch_strings_cmd @original_args: $!\n";
 	print while (<SS>);
+	close SS;
 } else {
 	# either valid -b or -d specified
 	if ($base ne "d") {
@@ -111,24 +98,8 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 		usage();
 		exit(1);
 	}
-	# Get argument list without -b, -d, -H, to pass to srch_strings
-	my $srch_strings_args = "";
-	my $skip = 0;
-	foreach (@original_args) {
-		if (/-b/ || /-F/) {
-			# skip -b or -F and next argument
-			$skip = 1;
-		} elsif ($skip == 1 || /-d/ || /-H/ || /-C/) {
-			# skip argument after -b or skip -d, -H, -C
-			$skip = 0;
-		} elsif ($_ eq $ARGV[0]) {
-			# match the first file argument, so stop
-			last;
-		} else {
-			# add current arg to new list
-			$srch_strings_args = $srch_strings_args . " $_";
-		} 
-	}
+	# Get argument list to pass to srch_strings
+	my $srch_strings_args = &strip_custom_args($files[0], @original_args);
 	
 	# print header if -H specified
 	if ($opts{'H'}) {
@@ -137,6 +108,10 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 			$filename_print = "${csv}IMG FILE${csv}${delim}";
 		}
 		print "${filename_print}${csv}FILENAME${csv}${delim}${csv}ISTATUS${csv}${delim}${csv}INODE${csv}${delim}${csv}BSTATUS${csv}${delim}${csv}BLOCK${csv}${delim}${csv}OFFSET${csv}${delim}${csv}BYTE OFFSET${csv}${delim}${csv}STRING${csv}\n";
+		my $partition_print = "";
+		if ($opts{'I'} eq "D") {
+			$partition_print = "${csv}PARTITION${csv}${delim}";
+		}
 	}
 
 	# loop through each of the file arguments at the end of the command line
@@ -146,96 +121,204 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 		my %inode = ();			# tracks inodes of blocks
 		my %istatus = ();		# tracks allocated/not allocated inode status
 		my %filename = ();		# tracks filenames
-		# if -d specified, use fsstat to get block size
-		if ($opts{'d'}) {
-			open (FS, "$fsstat_cmd $file |") || die "$fsstat_cmd $file: $!\n";
-			while (<FS>) {
-				next unless (/Block Size: (\d+)/);
-				$blksize = $1;
-				last;	
+		my $mm_cmd = "$mmls_cmd $file";
+		my $sector = 512;
+		my %part_skip = ();
+		my %part_count = ();
+		if ($img_type eq "D") {
+			open (MM_OUT, "$mm_cmd |") || die "$mm_cmd: $!\n";
+			while (<MM_OUT>) {
+				next if (/\(0x82\)$/);
+				if (m/^Units are in (\d+)-byte/) {
+					$sector = $1;
+				} elsif (m/\s+(\d+):00\s+(\d+)\s+\d+\s+(\d+)/) {
+					$part_skip{$1} = $2;
+					$part_count{$1} = $3;
+				}
 			}
+		} else {
+			$part_skip{'0'} = 0;
+			$part_count{'0'} = "9999999999999999999";	
 		}
-		
-		# run srch_strings with arguments and pipe output
-		open (SS_OUT, "$srch_strings_cmd $srch_strings_args $file |") || die "$srch_strings_cmd $srch_strings_args $file: $!\n";
 
-		# loop through search strings output
-		while (<SS_OUT>) {
-			my ($filename, $bytes, $string);
-
-			# parse srch_strings output, if -f specified, handle additional column
-			if ($opts{'f'}) {
-				($filename,$bytes,$string) = /^\s*(.+?):\s+(\d+)\s+(.*)$/;
-			} else {
-				($bytes,$string) = /^\s*(\d+)\s+(.*)$/;
-			}
-			my $blk = int($bytes/$blksize);
-			my $blk_offset = $bytes%$blksize;
-
-			# get block allocation status
-			unless (length($status{$blk})) {
-				open(BS, "$blkstat_cmd $file $blk |") || die "$blkstat_cmd $file $blk: $!\n";
-				while (<BS>) {
-					next unless (/Allocated/);
-					($status{$blk} = $_) =~ s/[^NA]//g;
-					last;
+		while (my ($key,$val) = each(%part_skip)) {
+			# if -d specified, use fsstat to get block size
+			if ($opts{'d'}) {
+				open (FS, "$fsstat_cmd -o $part_skip{$key} $file |") || die "$fsstat_cmd $file: $!\n";
+				while (<FS>) {
+					next unless (/Block Size: (\d+)/);
+					$blksize = $1;
+					last;	
 				}
 			}
 
-			# get inode number for block
-			unless (length($inode{$blk})) {
-				open(IF, "$ifind_cmd $file -d $blk |") || die "$ifind_cmd $file -d $blk: $!\n";
-				while (<IF>) {
-					next unless (/\d+|Inode not found/);
-					chomp;
-					if (/^I/) {
-						$inode{$blk} = "NF";
+			# run srch_strings with arguments and pipe output
+			my $ss_cmd = "$dd_cmd if=$file skip=$part_skip{$key} status=noxfer bs=$sector count=$part_count{$key} 2>/dev/null | $srch_strings_cmd $srch_strings_args";
+			open (SS_OUT, "$ss_cmd |") || die "$ss_cmd: $!\n";
+	
+			# loop through search strings output
+			while (<SS_OUT>) {
+				my ($filename, $bytes, $string);
+	
+				# parse srch_strings output, if -f specified, handle additional column
+				if ($opts{'f'}) {
+					($filename,$bytes,$string) = /^\s*(.+?):\s+(\d+)\s+(.*)$/;
+				} else {
+					($bytes,$string) = /^\s*(\d+)\s+(.*)$/;
+				}
+				my $blk = int($bytes/$blksize);
+				my $blk_offset = $bytes%$blksize;
+	
+				# get block allocation status
+				if ($level > 0) {
+					unless (length($status{$blk})) {
+						open(BS, "$blkstat_cmd -o $part_skip{$key} $file $blk |") || die "$blkstat_cmd $file $blk: $!\n";
+						while (<BS>) {
+							next unless (/Allocated/);
+							($status{$blk} = $_) =~ s/[^NA]//g;
+							last;
+						}
+						close BS;
+					}
+				}
+	
+				# get inode number for block
+				if ($level > 1) {
+					unless (length($inode{$blk})) {
+						open(IF, "$ifind_cmd -o $part_skip{$key} $file -d $blk |") || die "$ifind_cmd $file -d $blk: $!\n";
+						while (<IF>) {
+							next unless (/\d+|Inode not found/);
+							chomp;
+							if (/^I/) {
+								$inode{$blk} = "NF";
+							} else {
+								$inode{$blk} = $_;
+							}
+							last;
+						}
+						close IF;
+					}
+				
+					# get inode allocation status
+					if ($inode{$blk} eq "NF") {
+						$istatus{$inode{$blk}} = "NF";
 					} else {
-						$inode{$blk} = $_;
-					}
-					last;
-				}
-			}
-			
-			# get inode allocation status
-			if ($inode{$blk} eq "NF") {
-				$istatus{$inode{$blk}} = "NF";
-			} else {
-				unless (length($istatus{$inode{$blk}})) {
-					open(BS, "$istat_cmd $file $inode{$blk} |") || die "$istat_cmd $file $inode{$blk}: $!\n";
-					while (<BS>) {
-						next unless (/Allocated/);
-						($istatus{$inode{$blk}} = $_) =~ s/[^NA]//g;
-						last;
+						unless (length($istatus{$inode{$blk}})) {
+							open(IS, "$istat_cmd -o $part_skip{$key} $file $inode{$blk} |") || die "$istat_cmd $file $inode{$blk}: $!\n";
+							while (<IS>) {
+								next unless (/Allocated/);
+								($istatus{$inode{$blk}} = $_) =~ s/[^NA]//g;
+								last;
+							}
+							close IS;
+						}
 					}
 				}
+	
+				# get filename
+				if ($level > 2) {
+					if ($inode{$blk} ne "NF") {
+						unless (length($filename{$inode{$blk}})) {
+                                			open(FF, "$ffind_cmd -o $part_skip{$key} $file $inode{$blk} |") || die "$ffind_cmd $file $inode{$blk}: $!\n";
+                                			while (<FF>) {
+                                        			chomp;
+                                               			$filename{$inode{$blk}} = $_;
+                                        			last;
+                                			}
+							close FF;
+                        			}
+					} else {
+						$filename{$inode{$blk}} = "FILENAME_NF";
+					}
+				}
+	
+				# print srch_strings output with optional filename, block status, block number, byte offset
+				if ($opts{'C'}) {
+					$string =~ s/\"/\"\"/g;
+				}
+				my $filename_print = "";
+				if ($opts{'f'}) {
+					$filename_print = "${csv}${file}${csv}${delim}";
+				}
+				my $partition_print = "";
+				if ($opts{'I'} eq "D") {
+					$partition_print = "${csv}${key}${csv}${delim}";
+				}
+				print "${filename_print}${partition_print}${csv}$filename{$inode{$blk}}${csv}${delim}${csv}$istatus{$inode{$blk}}${csv}${delim}${csv}$inode{$blk}${csv}${delim}${csv}$status{$blk}${csv}${delim}${csv}${blk}${csv}${delim}${csv}${blk_offset}${csv}${delim}${csv}${bytes}${csv}${delim}${csv}${string}${csv}\n";
 			}
-
-			# get filename
-			if ($inode{$blk} ne "NF") {
-				unless (length($filename{$inode{$blk}})) {
-                                	open(FF, "$ffind_cmd $file $inode{$blk} |") || die "$ffind_cmd $file $inode{$blk}: $!\n";
-                                	while (<FF>) {
-                                        	chomp;
-                                               	$filename{$inode{$blk}} = $_;
-                                        	last;
-                                	}
-                        	}
-			} else {
-				$filename{$inode{$blk}} = "FILENAME_NF";
-			}
-
-			# print srch_strings output with optional filename, block status, block number, byte offset
-			if ($opts{'C'}) {
-				$string =~ s/\"/\"\"/g;
-			}
-			my $filename_print = "";
-			if ($opts{'f'}) {
-				$filename_print = "${csv}${file}${csv}${delim}";
-			}
-			print "${filename_print}${csv}$filename{$inode{$blk}}${csv}${delim}${csv}$istatus{$inode{$blk}}${csv}${delim}${csv}$inode{$blk}${csv}${delim}${csv}$status{$blk}${csv}${delim}${csv}${blk}${csv}${delim}${csv}${blk_offset}${csv}${delim}${csv}${bytes}${csv}${delim}${csv}${string}${csv}\n";
+			close SS_OUT;
 		}
-		close SS_OUT;
 	}
 }
 exit 0;
+	
+# print usage statement
+sub usage {
+print <<EOF;
+usage: $scriptname [OPTION(s)] [FILE(s)]
+
+$scriptname is a wrapper for the srch_strings command and can be used in its place.
+
+Basic example: $scriptname -d -a -t d file.img
+
+The -b or -d options enable the additional functionality.
+If -b or -d is used and "-t d" is not given, this script will fail.  
+If neither -b nor -d is given, this functions as standard srch_strings.
+
+The -number argument does not work.  Use "-n number" instead.
+
+OPTIONS (wrapper specific):
+   -h      	     Print this help message
+   -b blocksize      block size of filesystem in imagefile(s)
+   -d		     Determine block size of each file argument using fsstat
+   -H 		     Print a header line
+   -F delim  	     Delimiter in output, default is tab 
+   -C		     Output in CSV, with quotes to handle spaces
+   -g string	     string to pass to grep to limit results - TODO
+   -G file	     file of dirty words to pass to grep to limit results - TODO
+   -l level	     level of layers to lookup into
+			1 = print block and block allocation status
+			2 = print inode and inode allocation status
+			3 = print filename
+   -A 		     autorecover - TODO
+   -I type	     image type, all files must be same type
+			D = Disk, use mmls to find filesystems
+			F = Filesystem, default
+
+OPTIONS (standard srch_strings options)
+   -a -              Scan the entire file, not just the data section
+   -f     	     Print the name of the file before each string
+   -n number         Locate & print any NUL-terminated sequence of at
+   -<number>         least [number] characters (default 4).
+   -t {o,x,d}        Print the location of the string in base 8, 10 or 16
+   -o                An alias for --radix=o
+   -e {s,S,b,l,B,L}  Select character size and endianness:
+                        s = 7-bit, S = 8-bit, {b,l} = 16-bit, {B,L} = 32-bit
+   -h                Display this information
+   -v                Print the program's version number
+
+EOF
+}
+
+sub strip_custom_args {
+	# return argument list to pass to srch_strings
+	my ($first, @args) = @_;
+	my $skip = 0;
+	my $srch_strings_args = "";
+	foreach (@args) {
+		if (/-[bFgGlI]/) {
+			# skip -b, -F, -g, -G, -l, -I and next argument
+			$skip = 1;
+		} elsif ($skip == 1 || /-[dHCA]/) {
+			# skip argument after -b or skip -d, -H, -C, -A
+			$skip = 0;
+		} elsif ($_ eq $first) {
+			# match the first file argument, so stop
+			last;
+		} else {
+			# add current arg to new list
+			$srch_strings_args = $srch_strings_args . " $_";
+		} 
+	}
+	return $srch_strings_args;
+}
