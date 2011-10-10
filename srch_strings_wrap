@@ -1,32 +1,41 @@
-#!/bin/bash
+#!/usr/bin/perl
 
 # Written by: Dave Lassalle
+# Additional code and ideas by: Hal Pomeranz
+# 
 # A wrapper around srch_strings.  This can be used in place of srch_strings,
 #   and will forward all command line options to srch_strings.  If -b
-#   is specified and the proper srch_strings args were given, it will
-#   add block number and byte offset within the block to the output of
-#   srch_strings.
+#   or -d is specified and the proper srch_strings args were given, it will
+#   add allocation status, block number, and byte offset within the block
+#   to the output of srch_strings.
 
-AWK_CMD="/usr/bin/awk"
-BC_CMD="/usr/bin/bc"
-PASTE_CMD="/usr/bin/paste"
-RM_CMD="/bin/rm"
-SS_CMD="/usr/local/bin/srch_strings"
-CUT_CMD="/usr/bin/cut"
+# filesystem commands used in script
 
-usage()
-{
-cat << EOF
-usage: $0 [-h] [-b blocksize] [other srch_strings options] [file(s)]
+my $srch_strings_cmd = "/usr/local/bin/srch_strings";
+my $blkstat_cmd = "/usr/local/bin/blkstat";
+my $fsstat_cmd = "/usr/local/bin/fsstat";
+
+# print usage statement
+sub usage {
+print <<EOF;
+usage: $0 [-h] [-b blocksize] [-d] [-H] [-F delim] [-C] [srch_strings options] [file(s)]
 
 $0 is a wrapper for the srch_strings command and can be used in its place.
-	$0 adds the -b argument which is the block size, if it is known.
-	If the -b and "-t d" are not given, this script simply passes the
-	options to srch_strngs.
+
+The -b and -d options enable the additional functionality.
+If -b or -d is used and "-t d" is not given, this script will fail.  
+If neither -b nor -d is given, this functions as standard srch_strings.
+
+The -number argument does not work.  Use "-n number" instead.
+File(s) should be filesystem images, not full disk images.
 
 OPTIONS:
-   -h      Print this help message
-   -b      block size of filesystem in imagefile(s)
+   -h      	     Print this help message
+   -b blocksize      block size of filesystem in imagefile(s)
+   -d		     Determine block size of each file argument using fsstat
+   -H 		     Print a header line
+   -F delim  	     Delimiter in output, default is tab 
+   -C		     Output in CSV, with quotes to handle spaces
 
 Usage: srch_strings [option(s)] [file(s)]
  Display printable strings in [file(s)] (stdin by default)
@@ -42,85 +51,142 @@ Usage: srch_strings [option(s)] [file(s)]
   -h                  Display this information
   -v               Print the program's version number
 
-
 EOF
 }
 
-ORIG_ARGS=$@
-BLOCKSIZE=
-LOCATION=
-LISTFILE=0
-while getopts “:hb:afn:ot:e:v” OPTION; do
-     case $OPTION in
-         h)
-             usage
-             exit 1
-             ;;
-         b)
-             BLOCKSIZE=$OPTARG
-             ;;
-	 t)
-	     LOCATION=$OPTARG
-	     ;;
-	 f)
-	     LISTFILE=1
-	     ;;
-         \?)
-             usage
-             exit 1
-             ;;
-	 :)
-	     echo "Option -$OPTARG requires an argument." >&2
-	     exit 1
-	     ;;
-     esac
-done
+use strict;
+use Getopt::Std;
 
-if [[ -z $BLOCKSIZE ]] 
-then
-		$SS_CMD $@
-else
-	if [[ $LOCATION != "d" ]]
-	then
-		echo "Must use \"-t d\" with -b option."
-		usage
-		exit 1
-	else
-		# Get argument list without -b
-		SS_ARGS=
-		SKIP=
-		for var in "$@"
-		do
-			if [ $var == "-b" ]
-			then
-				SKIP=1
-			elif [ "$SKIP" == "1" ]
-			then
-				SKIP=0
-			else
-				SS_ARGS="$SS_ARGS $var"
-			fi
-		done
-		$SS_CMD $SS_ARGS > srch_strings.tmp
-		if [ $LISTFILE -eq 0 ]
-		then
-			$AWK_CMD '{print $1"/'$BLOCKSIZE'"}' srch_strings.tmp | $BC_CMD > srch_blocks.tmp 
-			$AWK_CMD '{print $1%'$BLOCKSIZE'}' srch_strings.tmp | $BC_CMD > srch_offset.tmp 
-			$PASTE_CMD srch_blocks.tmp srch_offset.tmp | $PASTE_CMD - srch_strings.tmp 
-		else
-			$AWK_CMD -F: '{print $1":"}' srch_strings.tmp > srch_strings1.tmp
-			$CUT_CMD -d':' -f2- srch_strings.tmp > srch_strings2.tmp
-			$AWK_CMD '{print $1"/'$BLOCKSIZE'"}' srch_strings2.tmp | $BC_CMD > srch_blocks.tmp 
-			$AWK_CMD '{print $1%'$BLOCKSIZE'}' srch_strings2.tmp | $BC_CMD > srch_offset.tmp 
-			$PASTE_CMD srch_strings1.tmp srch_blocks.tmp | $PASTE_CMD - srch_offset.tmp | $PASTE_CMD - srch_strings2.tmp 
-			$RM_CMD srch_strings1.tmp
-			$RM_CMD srch_strings2.tmp
-		fi
-		$RM_CMD srch_blocks.tmp
-		$RM_CMD srch_offset.tmp
-		$RM_CMD srch_strings.tmp
-		exit 0
-	fi
-fi
+my @original_args = @ARGV;
+my %opts = ();
+getopts('hb:dHCF:afn:ot:e:v', \%opts);
+my @files = @ARGV;				# should be the file arguments
 
-exit 0
+my $blksize = 0;
+my $base;
+my $delim = "\t";
+
+# help flag given
+if ($opts{'h'} == 1) {
+	usage();
+	exit(1);
+}
+#blocksize specifed
+if ($opts{'b'}) {
+	$blksize = $opts{'b'};
+	# -b given with no argument
+	if ($blksize =~ /^-|[^\d]/) {
+		usage();
+		exit(1);
+	}
+}
+# -t specified, store base in $base
+if ($opts{'t'}) {
+	$base = $opts{'t'};
+}
+# custom delimiter specified
+if ($opts{'F'}) {
+	$delim = $opts{'F'};
+}
+# csv mode, set delimiter to comma
+my $csv = "";
+if ($opts{'C'}) {
+	$delim = ",";
+	$csv = "\"";
+}
+
+if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
+	# no -d or -b, or no -d and -b invalid, so run regular srch_strings
+	#  with other arguments
+	open (SS, "$srch_strings_cmd @original_args |") or die "$srch_strings_cmd @original_args: $!\n";
+	print while (<SS>);
+} else {
+	# either valid -b or -d specified
+	if ($base ne "d") {
+		# base was not decimal
+		print "Must use \"-t d\" with -b or -d option.\n\n";
+		usage();
+		exit(1);
+	}
+	# Get argument list without -b, -d, -H, to pass to srch_strings
+	my $srch_strings_args = "";
+	my $skip = 0;
+	foreach (@original_args) {
+		if (/-b/ || /-F/) {
+			# skip -b or -F and next argument
+			$skip = 1;
+		} elsif ($skip == 1 || /-d/ || /-H/ || /-C/) {
+			# skip argument after -b or skip -d, -H, -C
+			$skip = 0;
+		} elsif ($_ eq $ARGV[0]) {
+			# match the first file argument, so stop
+			last;
+		} else {
+			# add current arg to new list
+			$srch_strings_args = $srch_strings_args . " $_";
+		} 
+	}
+	
+	# print header if -H specified
+	if ($opts{'H'}) {
+		my $filename_print = "";
+		if ($opts{'f'}) {
+			$filename_print = "${csv}FILENAME${csv}${delim}";
+		}
+		print "${filename_print}${csv}STATUS${csv}${delim}${csv}BLOCK${csv}${delim}${csv}OFFSET${csv}${delim}${csv}BYTE OFFSET${csv}${delim}${csv}STRING${csv}\n";
+	}
+
+	# loop through each of the file arguments at the end of the command line
+	foreach (@files) {
+		my $file = $_;
+		my %status = ();		# tracks allocated/not allocated block status
+		# if -d specified, use fsstat to get block size
+		if ($opts{'d'}) {
+			open (FS, "$fsstat_cmd $file |") || die "$fsstat_cmd $file: $!\n";
+			while (<FS>) {
+				next unless (/Block Size: (\d+)/);
+				$blksize = $1;
+				last;	
+			}
+		}
+		
+		# run srch_strings with arguments and pipe output
+		open (SS_OUT, "$srch_strings_cmd $srch_strings_args $file |") || die "$srch_strings_cmd $srch_strings_args $file: $!\n";
+
+		# loop through search strings output
+		while (<SS_OUT>) {
+			my ($filename, $bytes, $string);
+
+			# parse srch_strings output, if -f specified, handle additional column
+			if ($opts{'f'}) {
+				($filename,$bytes,$string) = /^\s*(.+?):\s+(\d+)\s+(.*)$/;
+			} else {
+				($bytes,$string) = /^\s*(\d+)\s+(.*)$/;
+			}
+			my $blk = int($bytes/$blksize);
+			my $blk_offset = $bytes%$blksize;
+
+			# get block allocation status
+			unless (length($status{$blk})) {
+				open(BS, "$blkstat_cmd $file $blk |") || die "$blkstat_cmd $file $blk: $!\n";
+				while (<BS>) {
+					next unless (/Allocated/);
+					($status{$blk} = $_) =~ s/[^NA]//g;
+					last;
+				}
+			}
+
+			# print srch_strings output with optional filename, block status, block number, byte offset
+			if ($opts{'C'}) {
+				$string =~ s/\"/\"\"/g;
+			}
+			my $filename_print = "";
+			if ($opts{'f'}) {
+				$filename_print = "${csv}${file}${csv}${delim}";
+			}
+			print "${filename_print}${csv}$status{$blk}${csv}${delim}${csv}${blk}${csv}${delim}${csv}${blk_offset}${csv}${delim}${csv}${bytes}${csv}${delim}${csv}${string}${csv}\n";
+		}
+		close SS_OUT;
+	}
+}
+exit 0;
