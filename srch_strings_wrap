@@ -10,12 +10,13 @@
 
 #TODO
 # handle swap space but print differently
-#-o in such_blk script.
 #option to automatically carve unallocated blocks on a match, warn about time, use on dirty word
 #use fib to recover file based on block found
 
 use strict;
 use Getopt::Std;
+use File::Path;
+use File::Basename;
 
 my $scriptname = "srch_strings_wrap";
 
@@ -34,7 +35,7 @@ my $grep_cmd = "/bin/grep";
 
 my @original_args = @ARGV;
 my %opts = ();
-getopts('hb:dHF:COg:G:il:AI:afn:t:oe:v', \%opts) || die usage();
+getopts('hb:dw:HF:COg:G:il:AD:I:afn:t:oe:v', \%opts) || die usage();
 my @files = @ARGV;				# should be the file arguments
 
 # set up some default values
@@ -48,8 +49,14 @@ my $img_type = "F";
 my $grep_case = "";
 my $grep_srch_cmd = "";
 my $csv = "";
+my $output_dir = "ssw_output";
+my $logfile = "$scriptname.log";
+my $log = 0;
 
-parse_opts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$img_type,\$csv);
+parse_opts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$img_type,\$csv,\$output_dir,\$log,\$logfile);
+
+mkpath($output_dir) if ($opts{'A'});
+mkpath(dirname($logfile)) if ($opts{'w'});
 
 if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 	# no -d or -b, or no -d and -b invalid, so run regular srch_strings 
@@ -65,7 +72,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 	# Get argument list to pass to srch_strings
 	my $srch_strings_args = strip_custom_args($files[0], @original_args);
 	
-	print_header(\%opts,\$csv,\$delim) if ($opts{'H'});
+	print_header($log,$logfile,\%opts,\$csv,\$delim) if ($opts{'H'});
 
 	# loop through each of the file arguments at the end of the command line
 	foreach (@files) {
@@ -116,34 +123,34 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 					$filename{$inode{$blk}} = get_filename($ffind_cmd,$part_skip{$key},$file,$inode{$blk}) unless (length($filename{$inode{$blk}}));
 				}
 
-				if ($opts{'O'}) {
+
+				if ($opts{'O'} || $opts{'A'}) {
 					# no inode, so just print a header for each block, then print blocks, offsets, and string
 					if ($inode{$blk} eq "NF" || $inode{$blk} eq "Metadata") {
 						if ($last_block ne $blk) {
-							print "\nIMAGE: $file, PARTITION: $key, FILE: $filename{$inode{$blk}}, INODE STATUS: $istatus{$inode{$blk}}, INODE: $inode{$blk}, BLOCK: $blk\n";
-							print "\tBLOCK_OFFSET\tSTRING\n";
-							my $ss_cmd = "$blkcat_cmd -o $part_skip{$key} $file $blk | $srch_strings_cmd $srch_strings_args $grep_srch_cmd";
-							open (SS, "$ss_cmd |") or die "$ss_cmd: $!\n";
-							print "\t$_" while (<SS>);
-							close SS;
+							print_group_block($log,$logfile,$file,$key,$filename{$inode{$blk}},$istatus{$inode{$blk}},
+									  $inode{$blk},$blk,$blkcat_cmd,$part_skip{$key},$srch_strings_cmd,
+									  $srch_strings_args,$grep_srch_cmd) if ($opts{'O'});
+							carve_block($output_dir,$file,$key,$filename{$inode{$blk}},$inode{$blk},
+								    $blk,$blkcat_cmd,$part_skip{$key}) if ($opts{'A'});
 						}
 					} else {
 						if ($last_inode ne $inode{$blk}) {
-							print "\nIMAGE: $file, PARTITION: $key, FILE: $filename{$inode{$blk}}, INODE STATUS: $istatus{$inode{$blk}}, INODE: $inode{$blk}\n";
-							print "\tFILE_OFFSET\tSTRING\n";
-							my $ss_cmd = "$icat_cmd -o $part_skip{$key} $file $inode{$blk} | $srch_strings_cmd $srch_strings_args $grep_srch_cmd";
-							open (SS, "$ss_cmd |") or die "$ss_cmd: $!\n";
-							print "\t$_" while (<SS>);
-							close SS;
+							print_group_inode($log,$logfile,$file,$key,$filename{$inode{$blk}},$istatus{$inode{$blk}},
+									  $inode{$blk},$icat_cmd,$part_skip{$key},$srch_strings_cmd,
+									  $srch_strings_args,$grep_srch_cmd) if ($opts{'O'});
+							carve_inode($output_dir,$file,$key,$filename{$inode{$blk}},$inode{$blk},
+								    $icat_cmd,$part_skip{$key}) if ($opts{'A'});
 						}
 					}
 					$last_inode = $inode{$blk};
 					$last_block = $blk;
-				} else {
+				} 
+				if (!$opts{'O'}) {
 					# print srch_strings output with additional fields
-					print_output(\%opts,$file,$key,$filename{$inode{$blk}},$istatus{$inode{$blk}},
-						     $inode{$blk},$status{$blk},$blk,$blk_offset,$bytes,$string,
-				 		     $delim,$csv,$level);
+					print_output($log,$logfile,\%opts,$file,$key,$filename{$inode{$blk}},
+						     $istatus{$inode{$blk}},$inode{$blk},$status{$blk},$blk,
+						     $blk_offset,$bytes,$string,$delim,$csv,$level);
 				}
 			}
 			close SS_OUT;
@@ -173,6 +180,7 @@ OPTIONS (wrapper specific):
    -I type	     image type, all files must be same type
 			D = Disk, use mmls to find filesystems
 			F = Filesystem, default
+   -w file	     Write stdout to file, default is srch_strings_wrap.log
    -H 		     Print a header line
    -F delim  	     Delimiter in output, default is tab 
    -C		     Output in CSV, with quotes to handle spaces
@@ -187,7 +195,8 @@ OPTIONS (wrapper specific):
 			1 = print block and block allocation status
 			2 = print inode and inode allocation status
 			3 = print filename
-   -A 		     autorecover - TODO
+   -A 		     autocarve, will take a while, best with tight grep cmds
+   -D		     autocarve output dir, will default to ./ssw_output 
 
 OPTIONS (standard srch_strings options)
    -a                Scan the entire file, not just the data section
@@ -211,8 +220,8 @@ sub strip_custom_args {
 	my $skip = 0;
 	my $srch_strings_args = "";
 	foreach (@args) {
-		if (/-[bFgGlI]/) {
-			# skip -b, -F, -g, -G, -l, -I and next argument
+		if (/-[bFgGlIDw]/) {
+			# skip -b, -F, -g, -G, -l, -I, -D, -w and next argument
 			$skip = 1;
 		} elsif ($skip == 1 || /-[dHOCAi]/) {
 			# skip argument after -b or skip -d, -H, -O, -C, -A, -i
@@ -229,7 +238,7 @@ sub strip_custom_args {
 }
 
 sub parse_opts {
-	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$img_type,$csv) = @_;
+	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$img_type,$csv,$output_dir,$log,$logfile) = @_;
 	my $opts = %$opts_ref;	
 
 	# help flag given
@@ -287,6 +296,20 @@ sub parse_opts {
 		$$delim = ",";
 		$$csv = "\"";
 	}
+
+	# set output dir for autocarve
+	if ($opts{'D'}) {
+		$$output_dir = $opts{'D'};
+	}
+
+	# output of logfile
+	if ($opts{'w'}) {
+		$$log = 1;
+		$$logfile = $opts{'w'};
+		if (-e $$logfile) {
+			unlink $$logfile or die "couldn't delete old log file $$logfile: $!\n";
+		}
+	}
 }
 
 sub check_base {
@@ -301,7 +324,7 @@ sub check_base {
 }
 
 sub print_header {
-	my ($opts_ref,$csv_ref,$delim_ref) = @_;
+	my ($log,$logfile,$opts_ref,$csv_ref,$delim_ref) = @_;
 	my $opts = %$opts_ref;
 	my $csv = $$csv_ref;
 	my $delim_ref = $$delim_ref;
@@ -320,6 +343,11 @@ sub print_header {
 	my $blk_offset_print = "${csv}B_OFFSET${csv}${delim}" if ($level > 0);
 
 	print "${imagename_print}${partition_print}${filename_print}${istatus_print}${inode_print}${status_print}${blk_print}${blk_offset_print}${csv}BYTE OFFSET${csv}${delim}${csv}STRING${csv}\n";
+	if ($log) {
+		open (OUT, ">>$logfile") or die "couldn't open $logfile: $!\n";
+		print OUT "${imagename_print}${partition_print}${filename_print}${istatus_print}${inode_print}${status_print}${blk_print}${blk_offset_print}${csv}BYTE OFFSET${csv}${delim}${csv}STRING${csv}\n";
+		close OUT;
+	}
 }
 
 sub parse_strings {
@@ -436,7 +464,7 @@ sub get_filename {
 }
 	
 sub print_output {
-	my ($opts_ref,$file,$key,$filename,$istatus,$inode,$status,$blk,$blk_offset,$bytes,$string,$delim,$csv,$level) = @_;
+	my ($log,$logfile,$opts_ref,$file,$key,$filename,$istatus,$inode,$status,$blk,$blk_offset,$bytes,$string,$delim,$csv,$level) = @_;
 	my $opts = %$opts_ref;
 
 	my $imagename_print = "";
@@ -453,4 +481,81 @@ sub print_output {
 	my $blk_offset_print = "${csv}${blk_offset}${csv}${delim}" if ($level > 0);
 
 	print "${imagename_print}${partition_print}${filename_print}${istatus_print}${inode_print}${status_print}${blk_print}${blk_offset_print}${csv}${bytes}${csv}${delim}${csv}${string}${csv}\n";
+	if ($log) {
+		open (OUT, ">>$logfile") or die "couldn't open $logfile: $!\n";
+		print OUT "${imagename_print}${partition_print}${filename_print}${istatus_print}${inode_print}${status_print}${blk_print}${blk_offset_print}${csv}${bytes}${csv}${delim}${csv}${string}${csv}\n";
+		close OUT;
+	}
+}
+
+sub print_group_inode {
+	my ($log,$logfile,$file,$key,$filename,$istatus,$inode,$icat_cmd,$part_skip,$srch_strings_cmd,$srch_strings_args,$grep_srch_cmd) = @_;
+	if ($log) {
+		open (OUT, ">>$logfile") or die "couldn't open $logfile: $!\n";
+	}
+	print "\nIMAGE: $file, PARTITION: $key, FILE: $filename, INODE STATUS: $istatus, INODE: $inode\n";
+	print OUT "\nIMAGE: $file, PARTITION: $key, FILE: $filename, INODE STATUS: $istatus, INODE: $inode\n" if ($log);
+	print "\tFILE_OFFSET\tSTRING\n";
+	print OUT "\tFILE_OFFSET\tSTRING\n" if ($log);
+	my $ss_cmd = "$icat_cmd -o $part_skip $file $inode | $srch_strings_cmd $srch_strings_args $grep_srch_cmd";
+	open (SS, "$ss_cmd |") or die "$ss_cmd: $!\n";
+	while (<SS>) {
+		print "\t$_"; 
+		print OUT "\t$_" if ($log); 
+	}
+	close OUT;
+	close SS;
+}
+
+sub print_group_block {
+	my ($log,$logfile,$file,$key,$filename,$istatus,$inode,$blk,$blkcat_cmd,$part_skip,$srch_strings_cmd,$srch_strings_args,$grep_srch_cmd) = @_;
+	if ($log) {
+		open (OUT, ">>$logfile") or die "couldn't open $logfile: $!\n";
+	}
+	print "\nIMAGE: $file, PARTITION: $key, FILE: $filename, INODE STATUS: $istatus, INODE: $inode, BLOCK: $blk\n";
+	print OUT "\nIMAGE: $file, PARTITION: $key, FILE: $filename, INODE STATUS: $istatus, INODE: $inode, BLOCK: $blk\n" if ($log);
+	print "\tBLOCK_OFFSET\tSTRING\n";
+	print OUT "\tBLOCK_OFFSET\tSTRING\n" if ($log);
+	my $ss_cmd = "$blkcat_cmd -o $part_skip $file $blk | $srch_strings_cmd $srch_strings_args $grep_srch_cmd";
+	open (SS, "$ss_cmd |") or die "$ss_cmd: $!\n";
+	while (<SS>) {
+		print "\t$_"; 
+		print OUT "\t$_" if ($log); 
+	}
+	close OUT;
+	close SS;
+}
+
+sub carve_inode {
+	my ($output_dir,$file,$key,$filename,$inode,$icat_cmd,$part_skip) = @_;
+	my $ic_cmd = "$icat_cmd -o $part_skip $file $inode";
+	open (IN, "$ic_cmd |") or die "$ic_cmd: $!\n";	
+	$file =~ s/\//_/g;
+	$file =~ s/^[^\w]+//g;
+	$file =~ s/^_+//g;
+	$key = "00" if ($key eq "N/A");
+	my $dir = dirname($filename);
+	$filename = "ROOTDIR" if ($filename eq "/");
+	my $outfile = "$output_dir/$file/$key/$filename";
+	mkpath("$output_dir/$file/$key/$dir");
+	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
+	print OUT join("",<IN>);
+	close OUT;
+	close IN;
+}
+
+sub carve_block {
+	my ($output_dir,$file,$key,$filename,$inode,$blk,$blkcat_cmd,$part_skip) = @_;
+	my $bc_cmd = "$blkcat_cmd -o $part_skip $file $blk";
+	open (IN, "$bc_cmd |") or die "$bc_cmd: $!\n";	
+	$file =~ s/\//_/g;
+	$file =~ s/^[^\w]+//g;
+	$file =~ s/^_+//g;
+	$key = "00" if ($key eq "N/A");
+	my $dir = "UNALLOCATED";
+	my $outfile = "$output_dir/$file/$key/$dir/$blk";
+	mkpath("$output_dir/$file/$key/$dir");
+	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
+	print OUT join("",<IN>);
+	close OUT;
 }
