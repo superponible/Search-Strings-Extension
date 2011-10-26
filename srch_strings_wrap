@@ -10,8 +10,7 @@
 
 #TODO
 # handle swap space but print differently
-#option to automatically carve unallocated blocks on a match, warn about time, use on dirty word
-#use fib to recover file based on block found
+# use fib to recover file based on block found
 
 use strict;
 use Getopt::Std;
