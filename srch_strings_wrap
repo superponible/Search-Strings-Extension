@@ -9,6 +9,13 @@
 #   this script is available.
 
 #TODO
+# accept piped image, with offset
+# update srch_strings_pipe
+# default to run mmls on image, if error, assume it's a filesystem image, if fails "Couldn't determine block size" error.
+# loop through hash of all arguments, find the one that is all #s, and use for -n arg to srch_strings
+# add .$inode to end of filename when carving
+# autocarve into FILENAMEFOUND, FILENAMENOTFOUND, UNALLOCATED
+# require -l3 for -A?, or even allow -l1 and all go to UNALLOCATED
 # handle swap space but print differently
 # use fib to recover file based on block found
 
