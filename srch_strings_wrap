@@ -11,7 +11,6 @@
 #TODO
 # accept piped image, with offset
 # update srch_strings_pipe
-# default to run mmls on image, if error, assume it's a filesystem image, if fails "Couldn't determine block size" error.
 # loop through hash of all arguments, find the one that is all #s, and use for -n arg to srch_strings
 # add .$inode to end of filename when carving
 # autocarve into FILENAMEFOUND, FILENAMENOTFOUND, UNALLOCATED
@@ -59,7 +58,7 @@ my $output_dir = "ssw_output";
 my $logfile = "$scriptname.log";
 my $log = 0;
 
-parse_opts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$img_type,\$csv,\$output_dir,\$log,\$logfile);
+parse_opts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$csv,\$output_dir,\$log,\$logfile);
 
 mkpath($output_dir) if ($opts{'A'});
 mkpath(dirname($logfile)) if ($opts{'w'});
@@ -77,8 +76,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 
 	# Get argument list to pass to srch_strings
 	my $srch_strings_args = strip_custom_args($files[0], @original_args);
-	
-	print_header($log,$logfile,\%opts,\$csv,\$delim) if ($opts{'H'});
+	my $first_line = 1;
 
 	# loop through each of the file arguments at the end of the command line
 	foreach (@files) {
@@ -92,7 +90,10 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 		my %part_skip = ("N/A",0);
 		my %part_count = ("N/A","9999999999999999999");
 
-		get_partition_info($file,\$sector,\%part_skip,\%part_count) if ($img_type eq "D");
+		get_partition_info($file,\$sector,\$img_type,\%part_skip,\%part_count);
+
+		print_header($log,$logfile,\%opts,$img_type,\$csv,\$delim) if ($opts{'H'} && $first_line);
+		$first_line = 0;
 
 		# loop through each partition of disk image, or just the one filesystem in a partition image
 		while (my ($key,$val) = each(%part_skip)) {
@@ -154,7 +155,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 				} 
 				if (!$opts{'O'}) {
 					# print srch_strings output with additional fields
-					print_output($log,$logfile,\%opts,$file,$key,$filename{$inode{$blk}},
+					print_output($log,$logfile,\%opts,$img_type,$file,$key,$filename{$inode{$blk}},
 						     $istatus{$inode{$blk}},$inode{$blk},$status{$blk},$blk,
 						     $blk_offset,$bytes,$string,$delim,$csv,$level);
 				}
@@ -183,9 +184,6 @@ OPTIONS (wrapper specific):
    -h      	     Print this help message
    -b blocksize      block size of filesystem in imagefile(s)
    -d		     Determine block size of each file argument using fsstat
-   -I type	     image type, all files must be same type
-			D = Disk, use mmls to find filesystems
-			F = Filesystem, default
    -w file	     Write stdout to file, default is srch_strings_wrap.log
    -H 		     Print a header line
    -F delim  	     Delimiter in output, default is tab 
@@ -226,8 +224,8 @@ sub strip_custom_args {
 	my $skip = 0;
 	my $srch_strings_args = "";
 	foreach (@args) {
-		if (/-[bFgGlIDw]/) {
-			# skip -b, -F, -g, -G, -l, -I, -D, -w and next argument
+		if (/-[bFgGlDw]/) {
+			# skip -b, -F, -g, -G, -l, -D, -w and next argument
 			$skip = 1;
 		} elsif ($skip == 1 || /-[dHOCAi]/) {
 			# skip argument after -b or skip -d, -H, -O, -C, -A, -i
@@ -244,7 +242,7 @@ sub strip_custom_args {
 }
 
 sub parse_opts {
-	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$img_type,$csv,$output_dir,$log,$logfile) = @_;
+	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$csv,$output_dir,$log,$logfile) = @_;
 	my $opts = %$opts_ref;	
 
 	# help flag given
@@ -290,13 +288,6 @@ sub parse_opts {
 		exit(1);
 	}	
 
-	# set img type to Disk or Filesystem, F is default
-	$$img_type = $opts{'I'} if ($opts{'I'});
-	if ($$img_type ne "D" && $$img_type ne "F") {
-		usage();
-		exit(1);
-	}
-	
 	# csv mode, set delimiter to comma
 	if ($opts{'C'}) {
 		$$delim = ",";
@@ -330,7 +321,7 @@ sub check_base {
 }
 
 sub print_header {
-	my ($log,$logfile,$opts_ref,$csv_ref,$delim_ref) = @_;
+	my ($log,$logfile,$opts_ref,$img_type,$csv_ref,$delim_ref) = @_;
 	my $opts = %$opts_ref;
 	my $csv = $$csv_ref;
 	my $delim_ref = $$delim_ref;
@@ -339,7 +330,7 @@ sub print_header {
 	$imagename_print = "${csv}IMG FILE${csv}${delim}" if ($opts{'f'});
 	
 	my $partition_print = "";
-	$partition_print = "${csv}PARTITION${csv}${delim}" if ($opts{'I'} eq "D");
+	$partition_print = "${csv}PARTITION${csv}${delim}" if ($img_type eq "D");
 
 	my $filename_print = "${csv}FILENAME${csv}${delim}" if ($level > 2);
 	my $istatus_print = "${csv}I_STATUS${csv}${delim}" if ($level > 1);
@@ -368,21 +359,27 @@ sub parse_strings {
 }
 
 sub get_partition_info {
-	my ($file,$sector,$part_skip_ref,$part_count_ref) = @_;
+	my ($file,$sector,$img_type,$part_skip_ref,$part_count_ref) = @_;
 	my $mm_cmd = "$mmls_cmd $file";
-
-	delete(%$part_skip_ref->{"N/A"});
-	delete(%$part_count_ref->{"N/A"});
+	$$img_type = "F";
 		
-	open (MM_OUT, "$mm_cmd |") || die "$mm_cmd: $!\n";
+	open (MM_OUT, "$mm_cmd 2>&1 |") || die "$mm_cmd: $!\n";
 	while (<MM_OUT>) {
 		next if (/\(0x82\)$/);
-		if (m/^Units are in (\d+)-byte/) {
+		if (m/Cannot determine partition type/) {
+			last;
+		} elsif (m/^Units are in (\d+)-byte/) {
 			$$sector = $1;
 		} elsif (m/\s+(\d+):00\s+(\d+)\s+\d+\s+(\d+)/) {
 			%$part_skip_ref->{$1} = $2;
 			%$part_count_ref->{$1} = $3;
+			$$img_type = "D";
 		}
+	}
+
+	if ($$img_type eq "D") {
+		delete(%$part_skip_ref->{"N/A"});
+		delete(%$part_count_ref->{"N/A"});
 	}
 	close MM_OUT;
 }
@@ -470,14 +467,14 @@ sub get_filename {
 }
 	
 sub print_output {
-	my ($log,$logfile,$opts_ref,$file,$key,$filename,$istatus,$inode,$status,$blk,$blk_offset,$bytes,$string,$delim,$csv,$level) = @_;
+	my ($log,$logfile,$opts_ref,$img_type,$file,$key,$filename,$istatus,$inode,$status,$blk,$blk_offset,$bytes,$string,$delim,$csv,$level) = @_;
 	my $opts = %$opts_ref;
 
 	my $imagename_print = "";
 	$imagename_print = "${csv}${file}${csv}${delim}" if ($opts{'f'});
 
 	my $partition_print = "";
-	$partition_print = "${csv}${key}${csv}${delim}" if ($opts{'I'} eq "D");
+	$partition_print = "${csv}${key}${csv}${delim}" if ($img_type eq "D");
 	
 	my $filename_print = "${csv}${filename}${csv}${delim}" if ($level > 2);
 	my $istatus_print = "${csv}${istatus}${csv}${delim}" if ($level > 1);
