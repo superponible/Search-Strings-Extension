@@ -9,6 +9,9 @@
 #   this script is available.
 
 #TODO
+# accept piped output of "srch_strings -a -t d" so that you could run that on a whole image
+#   then use that as a base and run multiple "greps" with differents words
+#     -- basically, replace FTK's string search functionality, without the index
 # accept piped image, with offset
 # update srch_strings_pipe
 # loop through hash of all arguments, find the one that is all #s, and use for -n arg to srch_strings
@@ -538,8 +541,8 @@ sub carve_inode {
 	$file =~ s/^_+//g;
 	$key = "00" if ($key eq "N/A");
 	my $dir = dirname($filename);
-	$filename = "ROOTDIR" if ($filename eq "/");
-	my $outfile = "$output_dir/$file/$key/$filename";
+        $filename = "ROOTDIR" if ($filename eq "/");
+        my $outfile = "$output_dir/$file/$key/$filename";
 	mkpath("$output_dir/$file/$key/$dir");
 	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
 	print OUT join("",<IN>);
