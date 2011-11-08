@@ -15,8 +15,6 @@
 # accept piped image, with offset
 # update srch_strings_pipe
 # loop through hash of all arguments, find the one that is all #s, and use for -n arg to srch_strings
-# add .$inode to end of filename when carving
-# autocarve into [root], FILENAMENOTFOUND, UNALLOCATED
 # require -l3 for -A?, or even allow -l1 and all go to UNALLOCATED
 # handle swap space but print differently
 # use fib to recover file based on block found
@@ -43,7 +41,7 @@ my $grep_cmd = "/bin/grep";
 
 my @original_args = @ARGV;
 my %opts = ();
-getopts('hb:dw:HF:COg:G:il:AD:I:afn:t:oe:v', \%opts) || die usage();
+getopts('hb:dw:HF:CONg:G:il:AD:I:afn:t:oe:v', \%opts) || die usage();
 my @files = @ARGV;				# should be the file arguments
 
 # set up some default values
@@ -95,7 +93,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 
 		get_partition_info($file,\$sector,\$img_type,\%part_skip,\%part_count);
 
-		print_header($log,$logfile,\%opts,$img_type,\$csv,\$delim) if ($opts{'H'} && $first_line);
+		print_header($log,$logfile,\%opts,$img_type,\$csv,\$delim) if ($opts{'H'} && !$opts{'N'} && $first_line);
 		$first_line = 0;
 
 		# loop through each partition of disk image, or just the one filesystem in a partition image
@@ -156,7 +154,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 					$last_inode = $inode{$blk};
 					$last_block = $blk;
 				} 
-				if (!$opts{'O'}) {
+				if (!$opts{'O'} && !$opts{'N'}) {
 					# print srch_strings output with additional fields
 					print_output($log,$logfile,\%opts,$img_type,$file,$key,$filename{$inode{$blk}},
 						     $istatus{$inode{$blk}},$inode{$blk},$status{$blk},$blk,
@@ -193,6 +191,7 @@ OPTIONS (wrapper specific):
    -C		     Output in CSV, with quotes to handle spaces
    -O		     Output in format grouped by files/inodes, 
 			overrides -H, -F, -C; requires -l 2 or higher
+   -N 		     Do not print output
    -g string	     string to pass to grep to limit results
    -G file	     file of dirty words to pass to grep to limit results
    -i		     ignore case on grep
@@ -230,8 +229,8 @@ sub strip_custom_args {
 		if (/-[bFgGlDw]/) {
 			# skip -b, -F, -g, -G, -l, -D, -w and next argument
 			$skip = 1;
-		} elsif ($skip == 1 || /-[dHOCAi]/) {
-			# skip argument after -b or skip -d, -H, -O, -C, -A, -i
+		} elsif ($skip == 1 || /-[dHONCAi]/) {
+			# skip argument after -b or skip -d, -H, -O, -N, -C, -A, -i
 			$skip = 0;
 		} elsif ($_ eq $first) {
 			# match the first file argument, so stop
@@ -538,12 +537,18 @@ sub carve_inode {
 	open (IN, "$ic_cmd |") or die "$ic_cmd: $!\n";	
 	$file =~ s/\//_/g;
 	$file =~ s/^[^\w]+//g;
-	$file =~ s/^_+//g;
+	$file =~ s/^[\._]+//g;
+	$filename =~ s/DELETED/\[deleted\]/;
 	$key = "00" if ($key eq "N/A");
 	my $dir = dirname($filename);
         $filename = "ROOTDIR" if ($filename eq "/");
-        my $outfile = "$output_dir/$file/$key/$filename";
-	mkpath("$output_dir/$file/$key/$dir");
+        my $outfile = "$output_dir/$file/$key/[root]/$filename";
+	if ($filename eq "FILENAME_NF") {
+        	$outfile = "$output_dir/$file/$key/[filename unknown]/$filename.$inode";
+		mkpath("$output_dir/$file/$key/[filename unknown]") if ($filename eq "FILENAME_NF");
+	} else {
+		mkpath("$output_dir/$file/$key/[root]/$dir") unless ($filename eq "FILENAME_NF");
+	}
 	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
 	print OUT join("",<IN>);
 	close OUT;
@@ -556,12 +561,14 @@ sub carve_block {
 	open (IN, "$bc_cmd |") or die "$bc_cmd: $!\n";	
 	$file =~ s/\//_/g;
 	$file =~ s/^[^\w]+//g;
-	$file =~ s/^_+//g;
+	$file =~ s/^[\._]+//g;
 	$key = "00" if ($key eq "N/A");
-	my $dir = "UNALLOCATED";
-	my $outfile = "$output_dir/$file/$key/$dir/$blk";
+	my $dir = "[unallocated]";
+	$dir = "[metadata]" if ($inode eq "Metadata");
+	my $outfile = "$output_dir/$file/$key/$dir/block.$blk";
 	mkpath("$output_dir/$file/$key/$dir");
 	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
 	print OUT join("",<IN>);
 	close OUT;
+	close IN;
 }
