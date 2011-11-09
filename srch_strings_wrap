@@ -14,8 +14,6 @@
 #     -- basically, replace FTK's string search functionality, without the index
 # accept piped image, with offset
 # update srch_strings_pipe
-# loop through hash of all arguments, find the one that is all #s, and use for -n arg to srch_strings
-# require -l3 for -A?, or even allow -l1 and all go to UNALLOCATED
 # handle swap space but print differently
 # use fib to recover file based on block found
 
@@ -134,7 +132,7 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 
 				if ($opts{'O'} || $opts{'A'}) {
 					# no inode, so just print a header for each block, then print blocks, offsets, and string
-					if ($inode{$blk} eq "NF" || $inode{$blk} eq "Metadata") {
+					if ($inode{$blk} eq "NF" || $inode{$blk} eq "Metadata" || $inode{$blk} eq "") {
 						if ($last_block ne $blk) {
 							print_group_block($log,$logfile,$file,$key,$filename{$inode{$blk}},$istatus{$inode{$blk}},
 									  $inode{$blk},$blk,$blkcat_cmd,$part_skip{$key},$srch_strings_cmd,
@@ -540,7 +538,9 @@ sub carve_inode {
 	$file =~ s/^[\._]+//g;
 	$filename =~ s/DELETED/\[deleted\]/;
 	$key = "00" if ($key eq "N/A");
-	my $dir = dirname($filename);
+	my $dir;
+	$dir = dirname($filename) if ($filename ne "");
+	$filename = "FILENAME_NF" if ($filename eq "");
         $filename = "ROOTDIR" if ($filename eq "/");
         my $outfile = "$output_dir/$file/$key/[root]/$filename";
 	if ($filename eq "FILENAME_NF") {

@@ -1,11 +1,11 @@
 During FOR508, I kept getting tired of having to divide the byte location of
-the string from the output of srch_strings by the block size.  I figured 
+the string from the output of srch_strings by the block size. I figured
 out a way to use bc on the command line on a case-by-case basis, but figured
 it'd be easier to just have a couple scripts that could output in that
-format.  The original result was srch_strings_blk, srch_strings_pipe, and
+format. The original result was srch_strings_blk, srch_strings_pipe, and
 srch_strings_wrap.sh.
 
-Rob Lee put me in touch with Hal Pomeranz who had a similar idea and we 
+Rob Lee put me in touch with Hal Pomeranz who had a similar idea and we
 talked about some additional things to include in the srch_strings_wrap.sh.
 I decided to conver the script to perl and added some new functionality.
 Those changes became the current srch_strings_wrap which aims to be a complete
@@ -17,18 +17,18 @@ wrapper around srch_strings.
 
 srch_strings_wrap
 
-This script is a wrapper around the regular srch_strings.  It will pass all 
-arguments to srch_strings and execute it normally.  The -b or -d option
+This script is a wrapper around the regular srch_strings. It will pass all
+arguments to srch_strings and execute it normally. The -b or -d option
 must be given to enable additional functionality, otherwise it will just run
-liek the normal srch_strings.  If the -b option is specified, it will 
-calculate the block that matched using the block size given.  If -d is used,
-it will use fsstat on the file argument to determine the block size.  
-If -b or -d is specified but "-t d" is not used, then an error will be 
-displayed.  
+liek the normal srch_strings. If the -b option is specified, it will
+calculate the block that matched using the block size given. If -d is used,
+it will use fsstat on the file argument to determine the block size.
+If -b or -d is specified but "-t d" is not used, then an error will be
+displayed.
 
 Files can be specified, otherwise stdin is used for input.
 
-Other arguments (-H, -F, -C, -O) can be used to modify the output.  See the usage
+Other arguments (-H, -F, -C, -O) can be used to modify the output. See the usage
 statement by running with -h.
 
 Example:
@@ -37,11 +37,11 @@ Example:
 OR
 # srch_strings_wrap -b 4096 -a -t -d -e l filesystem.img
 
-This would be equivalent to 
+This would be equivalent to
 
 # srch_strings -a -t d -e l filesystem.img | srch_strings_pipe -b 4096
 
-and 
+and
 
 # srch_strings -a -t d -e l filesystem.img > strings.out
 # srch_strings_blk -i filesystem.img -s strings.out
@@ -50,10 +50,10 @@ and
 
 srch_strings_blk
 
-This script requires a file as input (-s) which is the output of a 
+This script requires a file as input (-s) which is the output of a
 srch_strings command run with the "-t d" option to produce the byte
-location of the string in the original file.  Additionally, if the
-blocksize is known, specify it with -b.  Otherwise, the original image file
+location of the string in the original file. Additionally, if the
+blocksize is known, specify it with -b. Otherwise, the original image file
 can be specified with -i and the script will determine the block size
 using fsstat
 
@@ -72,7 +72,7 @@ Note, if -b and -i are both specified, the argument given in -b will be used.
 
 srch_strings_pipe
 
-This script can be used in a pipeline following srch_strings.  It only
+This script can be used in a pipeline following srch_strings. It only
 takes the -b argument for the block size and the -o argument for the optional
 output file.
 
@@ -84,12 +84,12 @@ Example:
 
 srch_strings_wrap.sh
 
-This script is a wrapper around the regular srch_strings.  It will pass all 
-arguments to srch_strings and execute it normally.  If the -b option is 
-specified, after running srch_strings, it will calculate the block like the 
-other scripts do.  If -b is not specified, srch_strings will run as it 
-normally does.  If -b is specified but "-t d" is not used, then an 
-error will be displayed.  
+This script is a wrapper around the regular srch_strings. It will pass all
+arguments to srch_strings and execute it normally. If the -b option is
+specified, after running srch_strings, it will calculate the block like the
+other scripts do. If -b is not specified, srch_strings will run as it
+normally does. If -b is specified but "-t d" is not used, then an
+error will be displayed.
 
 Files can be specified, otherwise stdin is used for input.
 
@@ -97,11 +97,13 @@ Example:
 
 # srch_strings_wrap -b 4096 -a -t -d -e l filesystem.img
 
-This would be equivalent to 
+This would be equivalent to
 
 # srch_strings -a -t d -e l filesystem.img | srch_strings_pipe -b 4096
 
-and 
+and
 
 # srch_strings -a -t d -e l filesystem.img > strings.out
 # srch_strings_blk -i filesystem.img -s strings.out
+
+
