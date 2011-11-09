@@ -9,11 +9,6 @@
 #   this script is available.
 
 #TODO
-# accept piped output of "srch_strings -a -t d" so that you could run that on a whole image
-#   then use that as a base and run multiple "greps" with differents words
-#     -- basically, replace FTK's string search functionality, without the index
-# accept piped image, with offset
-# update srch_strings_pipe
 # handle swap space but print differently
 # use fib to recover file based on block found
 
@@ -39,7 +34,7 @@ my $grep_cmd = "/bin/grep";
 
 my @original_args = @ARGV;
 my %opts = ();
-getopts('hb:dw:HF:CONg:G:il:AD:I:afn:t:oe:v', \%opts) || die usage();
+getopts('hb:dw:HF:CONg:G:il:APD:I:afn:t:oe:v', \%opts) || die usage();
 my @files = @ARGV;				# should be the file arguments
 
 # set up some default values
@@ -56,13 +51,18 @@ my $csv = "";
 my $output_dir = "ssw_output";
 my $logfile = "$scriptname.log";
 my $log = 0;
+my $pre_image = "";
 
-parse_opts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$csv,\$output_dir,\$log,\$logfile);
+parse_opts(\%opts,\$blksize,\$base,\$delim,\$level,\$grep_case,\$grep_srch_cmd,\$csv,\$output_dir,\$log,\$logfile,\$pre_image);
+if ($opts{'P'} && @files > 0) {
+	usage();
+	exit(1);
+}
 
 mkpath($output_dir) if ($opts{'A'});
 mkpath(dirname($logfile)) if ($opts{'w'});
 
-if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
+if (!$opts{'d'} && !$opts{'b'} && !$opts{'P'} || !$opts{'d'} && $blksize == 1) {
 	# no -d or -b, or no -d and -b invalid, so run regular srch_strings 
 	#    with other arguments
 	my $srch_strings_args = strip_custom_args($files[0], @original_args);
@@ -70,6 +70,82 @@ if (!$opts{'d'} && !$opts{'b'} || !$opts{'d'} && $blksize == 1) {
 	open (SS, "$ss_cmd |") or die "$ss_cmd: $!\n";
 	print while (<SS>);
 	close SS;
+} elsif ($opts{'P'}) {
+	my $srch_strings_args = strip_custom_args($files[0],@original_args);
+	my $first_line = 1;
+	my $file = $pre_image;
+	my %status = ();		# tracks allocated/not allocated block status
+	my %inode = ();			# tracks inodes of blocks
+	my %istatus = ();		# tracks allocated/not allocated inode status
+	my %filename = ();		# tracks filenames
+	my $sector = 512;
+	my %part_skip = ("N/A",0);
+	my %part_count = ("N/A","9999999999999999999");
+	
+	get_partition_info($file,\$sector,\$img_type,\%part_skip,\%part_count);
+
+	print_header($log,$logfile,\%opts,\$img_type,\$csv,\$delim) if ($opts{'H'} && !$opts{'N'} && $first_line);
+	
+	$first_line = 0;
+	my $key = "N/A";
+	my $val = 0;
+	
+	$blksize = get_block_size($fsstat_cmd, $val, $file) if ($opts{'I'});
+
+	my $last_inode = "";
+	my $last_block = "";
+	while (<STDIN>) {
+		# parse srch_strings output, if -f specified, handle additional column
+		my ($filename, $bytes, $string) = parse_strings($opts{'f'},$_);
+		
+		# CSV output so replace single quote with double in string column
+		$string =~ s/\"/\"\"/g if ($opts{'C'});
+
+		my $blk = int($bytes/$blksize);
+		my $blk_offset = $bytes%$blksize;
+
+		$status{$blk} = get_block_allocation_status($level,$blkstat_cmd,$part_skip{$key},$file,$blk) unless (length($status{$blk}));	
+
+		# get inode number for block
+		if ($level > 1) {
+			$inode{$blk} = get_inode($ifind_cmd,$part_skip{$key},$file,$blk) unless (length($inode{$blk}));
+			$istatus{$inode{$blk}} = get_inode_allocation_status($istat_cmd,$part_skip{$key},$file,$inode{$blk}) unless (length($istatus{$inode{$blk}}));
+		}
+
+		# get filename
+		if ($level > 2) {
+			$filename{$inode{$blk}} = get_filename($ffind_cmd,$part_skip{$key},$file,$inode{$blk}) unless (length($filename{$inode{$blk}}));
+		}
+		
+		if ($opts{'O'} || $opts{'A'}) {
+			# no inode, so just print a header for each block, then print blocks, offsets, and string
+			if ($inode{$blk} eq "NF" || $inode{$blk} eq "Metadata" || $inode{$blk} eq "") {
+				if ($last_block ne $blk) {
+					print_group_block($log,$logfile,$file,$key,$filename{$inode{$blk}},$istatus{$inode{$blk}},
+							  $inode{$blk},$blk,$blkcat_cmd,$part_skip{$key},$srch_strings_cmd,
+							  $srch_strings_args,$grep_srch_cmd) if ($opts{'O'});
+					carve_block($output_dir,$file,$key,$filename{$inode{$blk}},$inode{$blk},
+						    $blk,$blkcat_cmd,$part_skip{$key}) if ($opts{'A'});
+				}
+			} else {
+				if ($last_inode ne $inode{$blk}) {
+					print_group_inode($log,$logfile,$file,$key,$filename{$inode{$blk}},$istatus{$inode{$blk}},
+							  $inode{$blk},$icat_cmd,$part_skip{$key},$srch_strings_cmd,
+							  $srch_strings_args,$grep_srch_cmd) if ($opts{'O'});
+					carve_inode($output_dir,$file,$key,$filename{$inode{$blk}},$inode{$blk},
+						    $icat_cmd,$part_skip{$key}) if ($opts{'A'});
+				}
+			}
+			$last_inode = $inode{$blk};
+			$last_block = $blk;
+		} 
+		if (!$opts{'O'} && !$opts{'N'}) {
+			# print srch_strings output with additional fields
+			print_output($log,$logfile,\%opts,$img_type,$file,$key,$filename{$inode{$blk}},
+				     $istatus{$inode{$blk}},$inode{$blk},$status{$blk},$blk,
+				     $blk_offset,$bytes,$string,$delim,$csv,$level);
+		}
+	}
 } else {
 	check_base($base);		# check that -t d was specified
 
@@ -189,6 +265,7 @@ OPTIONS (wrapper specific):
    -C		     Output in CSV, with quotes to handle spaces
    -O		     Output in format grouped by files/inodes, 
 			overrides -H, -F, -C; requires -l 2 or higher
+			if with -P, need to give all the original strings opts
    -N 		     Do not print output
    -g string	     string to pass to grep to limit results
    -G file	     file of dirty words to pass to grep to limit results
@@ -201,6 +278,9 @@ OPTIONS (wrapper specific):
 			3 = print filename
    -A 		     autocarve, will take a while, best with tight grep cmds
    -D		     autocarve output dir, will default to ./ssw_output 
+   -P		     accept precomputed "strings -a -t d <-e l/b>" from
+			the pipeline
+   -I image	     the image used in the precomputed strings output
 
 OPTIONS (standard srch_strings options)
    -a                Scan the entire file, not just the data section
@@ -227,8 +307,8 @@ sub strip_custom_args {
 		if (/-[bFgGlDw]/) {
 			# skip -b, -F, -g, -G, -l, -D, -w and next argument
 			$skip = 1;
-		} elsif ($skip == 1 || /-[dHONCAi]/) {
-			# skip argument after -b or skip -d, -H, -O, -N, -C, -A, -i
+		} elsif ($skip == 1 || /-[dHONCAPIi]/) {
+			# skip argument after -b or skip -d, -H, -O, -N, -C, -A, -P, -I, -i
 			$skip = 0;
 		} elsif ($_ eq $first) {
 			# match the first file argument, so stop
@@ -242,7 +322,7 @@ sub strip_custom_args {
 }
 
 sub parse_opts {
-	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$csv,$output_dir,$log,$logfile) = @_;
+	my ($opts_ref,$blksize,$base,$delim,$level,$grep_case,$grep_srch_cmd,$csv,$output_dir,$log,$logfile,$pre_image) = @_;
 	my $opts = %$opts_ref;	
 
 	# help flag given
@@ -305,6 +385,19 @@ sub parse_opts {
 		$$logfile = $opts{'w'};
 		if (-e $$logfile) {
 			unlink $$logfile or die "couldn't delete old log file $$logfile: $!\n";
+		}
+	}
+	
+	if ($opts{'P'}) {
+		if ($opts{'I'}) {
+			$$pre_image = $opts{'I'};
+		} else {
+			usage();
+			exit(1);
+		}
+		if ($opts{'O'} && $opts{'t'} ne "d") {
+			usage();
+			exit(1);
 		}
 	}
 }
