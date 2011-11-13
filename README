@@ -28,7 +28,7 @@ displayed.
 
 Files can be specified, otherwise stdin is used for input.
 
-Other arguments (-H, -F, -C) can be used to modify the output.  See the usage
+Other arguments (-H, -F, -C, -O) can be used to modify the output.  See the usage
 statement by running with -h.
 
 Example:
