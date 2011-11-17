@@ -71,6 +71,7 @@ if (!$opts{'d'} && !$opts{'b'} && !$opts{'P'} || !$opts{'d'} && $blksize == 1) {
 	print while (<SS>);
 	close SS;
 } elsif ($opts{'P'}) {
+	$opts{'t'} = "d";
 	my $srch_strings_args = strip_custom_args($files[0],@original_args);
 	my $first_line = 1;
 	my $file = $pre_image;
@@ -392,10 +393,6 @@ sub parse_opts {
 		if ($opts{'I'}) {
 			$$pre_image = $opts{'I'};
 		} else {
-			usage();
-			exit(1);
-		}
-		if ($opts{'O'} && $opts{'t'} ne "d") {
 			usage();
 			exit(1);
 		}
