@@ -9,7 +9,7 @@
 #   this script is available.
 
 #TODO
-# handle swap space but print differently
+# handle swap partition but print differently
 # use fib to recover file based on block found
 
 use strict;
@@ -32,17 +32,8 @@ my $mmls_cmd = "/usr/local/bin/mmls";
 my $dd_cmd = "/bin/dd";
 my $grep_cmd = "/bin/grep";
 
-# replace -# with -n #
-my @newARGV = ();
-foreach(@ARGV) {
-	if (/-(\d+)/) {
-		push(@newARGV,"-n");
-		push(@newARGV,"$1");
-	} else {
-		push(@newARGV, $_);
-	}
-}
-@ARGV = @newARGV;
+# replace -# with -n # and - with -a
+@ARGV = fix_args(@ARGV);
 
 my @original_args = @ARGV;
 my %opts = ();
@@ -291,12 +282,13 @@ OPTIONS (wrapper specific):
 			3 = print filename
    -A 		     autocarve, will take a while, best with tight grep cmds
    -D		     autocarve output dir, will default to ./ssw_output 
-   -P		     accept precomputed "strings -a -t d <-e l/b>" from
+   -P		     accept precomputed "strings -t d <-e l/b>" from
 			the pipeline
    -I image	     the image used in the precomputed strings output
 
 OPTIONS (standard srch_strings options)
    -a                Scan the entire file, not just the data section
+   - 		     Same as -a
    -f     	     Print the name of the file before each string
    -n number         Locate & print any NUL-terminated sequence of at
 			least [number] characters (default 4).
@@ -309,6 +301,23 @@ OPTIONS (standard srch_strings options)
    -v                Print the program's version number
 
 EOF
+}
+
+# replace -# with -n #, and - with -a
+sub fix_args {
+	my @tmpARGV = @_;
+	my @newARGV = ();
+	foreach(@tmpARGV) {
+		if (/-(\d+)$/) {
+			push(@newARGV,"-n");
+			push(@newARGV,"$1");
+		} elsif (/^-$/) {
+			push(@newARGV,"-a");
+		} else {
+			push(@newARGV, $_);
+		}
+	}
+	return @newARGV;
 }
 
 sub strip_custom_args {
