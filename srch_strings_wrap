@@ -32,6 +32,18 @@ my $mmls_cmd = "/usr/local/bin/mmls";
 my $dd_cmd = "/bin/dd";
 my $grep_cmd = "/bin/grep";
 
+# replace -# with -n #
+my @newARGV = ();
+foreach(@ARGV) {
+	if (/-(\d+)/) {
+		push(@newARGV,"-n");
+		push(@newARGV,"$1");
+	} else {
+		push(@newARGV, $_);
+	}
+}
+@ARGV = @newARGV;
+
 my @original_args = @ARGV;
 my %opts = ();
 getopts('hb:dw:HF:CONg:G:il:APD:I:afn:t:oe:v', \%opts) || die usage();
@@ -288,7 +300,7 @@ OPTIONS (standard srch_strings options)
    -f     	     Print the name of the file before each string
    -n number         Locate & print any NUL-terminated sequence of at
 			least [number] characters (default 4).
-   -<number>         DOES NOT WORK WITH WRAPPER, USE -n 
+   -<number>         Same as -n number 
    -t {o,x,d}        Print the location of the string in base 8, 10 or 16
    -o                An alias for --radix=o
    -e {s,S,b,l,B,L}  Select character size and endianness:
