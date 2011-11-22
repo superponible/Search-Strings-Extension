@@ -137,7 +137,7 @@ if (!$opts{'d'} && !$opts{'b'} && !$opts{'P'} || !$opts{'d'} && $blksize == 1) {
 							  $inode{$blk},$icat_cmd,$part_skip{$key},$srch_strings_cmd,
 							  $srch_strings_args,$grep_srch_cmd) if ($opts{'O'});
 					carve_inode($output_dir,$file,$key,$filename{$inode{$blk}},$inode{$blk},
-						    $icat_cmd,$part_skip{$key}) if ($opts{'A'});
+						    $icat_cmd,$istat_cmd,$part_skip{$key}) if ($opts{'A'});
 				}
 			}
 			$last_inode = $inode{$blk};
@@ -226,7 +226,7 @@ if (!$opts{'d'} && !$opts{'b'} && !$opts{'P'} || !$opts{'d'} && $blksize == 1) {
 									  $inode{$blk},$icat_cmd,$part_skip{$key},$srch_strings_cmd,
 									  $srch_strings_args,$grep_srch_cmd) if ($opts{'O'});
 							carve_inode($output_dir,$file,$key,$filename{$inode{$blk}},$inode{$blk},
-								    $icat_cmd,$part_skip{$key}) if ($opts{'A'});
+								    $icat_cmd,$istat_cmd,$part_skip{$key}) if ($opts{'A'});
 						}
 					}
 					$last_inode = $inode{$blk};
@@ -645,10 +645,9 @@ sub print_group_block {
 }
 
 sub carve_inode {
-	my ($output_dir,$file,$key,$filename,$inode,$icat_cmd,$part_skip) = @_;
+	my ($output_dir,$file,$key,$filename,$inode,$icat_cmd,$istat_cmd,$part_skip) = @_;
 	
 	# check if type is file or directory	
-	my $istat_cmd = "/usr/local/bin/istat";
 	my $is_cmd = "$istat_cmd -o $part_skip $file $inode";
 	open (STAT,"$is_cmd |") or die "$is_cmd: $!\n";
 	my $type = "file";
@@ -687,7 +686,6 @@ sub carve_inode {
 	} else {
 		mkpath("$output_dir/$file/$key/[root]/$dir");
 	}
-print "$outfile\n";
 	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
 	print OUT join("",<IN>);
 	close OUT;
