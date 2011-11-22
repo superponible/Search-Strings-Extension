@@ -665,7 +665,7 @@ sub carve_inode {
 	$file =~ s/^[^\w]+//g;
 	$file =~ s/^[\._]+//g;
 	
-	$filename =~ s/DELETED/\[deleted\]/;
+	$filename =~ s/^DELETED/\[deleted\]/;
 	$key = "00" if ($key eq "N/A");
 
 	my $dir;	
@@ -679,12 +679,15 @@ sub carve_inode {
 	}
 	$filename = "FILENAME_NF" if ($filename eq "");
 
-        my $outfile = "$output_dir/$file/$key/[root]/$filename";
+	my $root = "[root]";
+	$root = "" if ($filename =~ /^\[deleted\]/);
+
+        my $outfile = "$output_dir/$file/$key/$root/$filename";
 	if ($filename eq "FILENAME_NF") {
-        	$outfile = "$output_dir/$file/$key/[filename unknown]/$filename.$inode";
-		mkpath("$output_dir/$file/$key/[filename unknown]");
+        	$outfile = "$output_dir/$file/$key/[filename_unknown]/$filename.$inode";
+		mkpath("$output_dir/$file/$key/[filename_unknown]");
 	} else {
-		mkpath("$output_dir/$file/$key/[root]/$dir");
+		mkpath("$output_dir/$file/$key/$root/$dir");
 	}
 	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
 	print OUT join("",<IN>);
