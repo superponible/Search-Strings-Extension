@@ -570,7 +570,11 @@ sub get_filename {
                		chomp;
 			s/^\* /DELETED\//;
 			close FF;
-               		return $_;
+			if (/^File name not found/) {
+				return "FILENAME_NF";
+			} else {
+				return $_;
+			}
                	}
 	} else {
 		return "FILENAME_NF";
@@ -642,24 +646,48 @@ sub print_group_block {
 
 sub carve_inode {
 	my ($output_dir,$file,$key,$filename,$inode,$icat_cmd,$part_skip) = @_;
+	
+	# check if type is file or directory	
+	my $istat_cmd = "/usr/local/bin/istat";
+	my $is_cmd = "$istat_cmd -o $part_skip $file $inode";
+	open (STAT,"$is_cmd |") or die "$is_cmd: $!\n";
+	my $type = "file";
+	while (<STAT>) {
+		next if (! /^mode: d/);
+		$type = "dir";
+	}
+
+	# icat file/dir
 	my $ic_cmd = "$icat_cmd -o $part_skip $file $inode";
 	open (IN, "$ic_cmd |") or die "$ic_cmd: $!\n";	
+
+	# fix image filename for output path
 	$file =~ s/\//_/g;
 	$file =~ s/^[^\w]+//g;
 	$file =~ s/^[\._]+//g;
+	
 	$filename =~ s/DELETED/\[deleted\]/;
 	$key = "00" if ($key eq "N/A");
-	my $dir;
-	$dir = dirname($filename) if ($filename ne "");
+
+	my $dir;	
+	if ($filename ne "") {
+		if ($type eq "dir") {
+			$dir = $filename;
+			$filename = $filename . "/DIRECTORY_FILE";
+		} else {
+			$dir = dirname($filename);
+		}
+	}
 	$filename = "FILENAME_NF" if ($filename eq "");
-        $filename = "ROOTDIR" if ($filename eq "/");
+
         my $outfile = "$output_dir/$file/$key/[root]/$filename";
 	if ($filename eq "FILENAME_NF") {
         	$outfile = "$output_dir/$file/$key/[filename unknown]/$filename.$inode";
-		mkpath("$output_dir/$file/$key/[filename unknown]") if ($filename eq "FILENAME_NF");
+		mkpath("$output_dir/$file/$key/[filename unknown]");
 	} else {
-		mkpath("$output_dir/$file/$key/[root]/$dir") unless ($filename eq "FILENAME_NF");
+		mkpath("$output_dir/$file/$key/[root]/$dir");
 	}
+print "$outfile\n";
 	open (OUT, ">$outfile") or die "couldn't create output file $outfile: $!\n";
 	print OUT join("",<IN>);
 	close OUT;
