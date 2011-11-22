@@ -646,13 +646,12 @@ sub print_group_block {
 
 sub carve_inode {
 	my ($output_dir,$file,$key,$filename,$inode,$icat_cmd,$istat_cmd,$part_skip) = @_;
-	
 	# check if type is file or directory	
 	my $is_cmd = "$istat_cmd -o $part_skip $file $inode";
 	open (STAT,"$is_cmd |") or die "$is_cmd: $!\n";
 	my $type = "file";
 	while (<STAT>) {
-		next if (! /^mode: d/);
+		next if (! /^mode: d/ && ! /^Flags.*Directory/);
 		$type = "dir";
 	}
 
