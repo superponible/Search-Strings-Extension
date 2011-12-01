@@ -654,7 +654,7 @@ sub carve_inode {
 	open (STAT,"$is_cmd |") or die "$is_cmd: $!\n";
 	my $type = "file";
 	while (<STAT>) {
-		next if (! /^mode: d/ && ! /^Flags.*Directory/);
+		next if (! /^mode: d/ && ! /^Flags.*Directory/ && /^File Attrib.*Directory/);
 		$type = "dir";
 	}
 
