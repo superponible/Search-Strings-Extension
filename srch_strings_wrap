@@ -11,6 +11,8 @@
 #TODO
 # handle swap partition but print differently
 # use fib to recover file based on block found
+# add capability to only search unallocated - blkls, blkcalc
+# option to indicate image is unalloc image and also specify orig image
 
 use strict;
 use Getopt::Std;
