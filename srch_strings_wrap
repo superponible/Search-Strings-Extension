@@ -13,6 +13,7 @@
 # use fib to recover file based on block found
 # add capability to only search unallocated - blkls, blkcalc
 # option to indicate image is unalloc image and also specify orig image
+# precomputer file to inode mapping using fls to save exec time
 
 use strict;
 use Getopt::Std;
