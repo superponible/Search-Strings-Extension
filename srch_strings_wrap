@@ -24,6 +24,14 @@ my $scriptname = "srch_strings_wrap";
 
 # filesystem commands used in script
 my $srch_strings_cmd = "/usr/local/bin/srch_strings";
+my $srch_strings_cmd_alt1 = "/usr/local/bin/srch_strings_orig";
+my $srch_strings_cmd_alt2 = "/usr/local/bin/srch_strings.orig";
+if (-f $srch_strings_cmd_alt1) {
+	$srch_strings_cmd = $srch_strings_cmd_alt1;
+}
+if (-f $srch_strings_cmd_alt2) {
+	$srch_strings_cmd = $srch_strings_cmd_alt2;
+}
 my $blkstat_cmd = "/usr/local/bin/blkstat";
 my $fsstat_cmd = "/usr/local/bin/fsstat";
 my $ifind_cmd = "/usr/local/bin/ifind";
