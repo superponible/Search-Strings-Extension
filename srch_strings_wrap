@@ -41,7 +41,7 @@ my $icat_cmd = "/usr/local/bin/icat";
 my $blkcat_cmd = "/usr/local/bin/blkcat";
 my $mmls_cmd = "/usr/local/bin/mmls";
 my $dd_cmd = "/bin/dd";
-my $grep_cmd = "/bin/grep";
+my $grep_cmd = "/bin/egrep";
 
 # replace -# with -n # and - with -a
 @ARGV = fix_args(@ARGV);
@@ -662,7 +662,7 @@ sub carve_inode {
 	open (STAT,"$is_cmd |") or die "$is_cmd: $!\n";
 	my $type = "file";
 	while (<STAT>) {
-		next if (! /^mode: d/ && ! /^Flags.*Directory/ && /^File Attrib.*Directory/);
+		next if (! /^mode: d/ && ! /^Flags.*Directory/ && ! /^File Attrib.*Directory/);
 		$type = "dir";
 	}
 
