@@ -107,12 +107,33 @@ if (!$opts{'d'} && !$opts{'b'} && !$opts{'P'} || !$opts{'d'} && $blksize == 1) {
 	
 	$blksize = get_block_size($fsstat_cmd, $val, $file) if ($opts{'I'});
 
+	my $fgrep = "";
+	my $firstgrep = 1;
+	if ($opts{'G'}) {
+		open (GREPFILE, "$opts{'G'}") or die "couldn't open $opts{'G'}: $!\n";
+		while (<GREPFILE>) {
+			if (!$firstgrep) {
+				$fgrep = $fgrep . "|";
+			} 
+			chomp;
+			$fgrep = $fgrep . $_;
+			$firstgrep = 0;
+		}
+		close GREPFILE;
+	}
+
 	my $last_inode = "";
 	my $last_block = "";
 	while (<STDIN>) {
 		# parse srch_strings output, if -f specified, handle additional column
 		my ($filename, $bytes, $string) = parse_strings($opts{'f'},$_);
-		
+
+        	if ($opts{'g'}) {
+                	next if ($string !~ m/$opts{'g'}/gi);
+        	} elsif ($opts{'G'}) {
+                	next if ($string !~ m/$fgrep/gi);
+        	}
+
 		# CSV output so replace single quote with double in string column
 		$string =~ s/\"/\"\"/g if ($opts{'C'});
 
