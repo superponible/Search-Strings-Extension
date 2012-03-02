@@ -105,5 +105,3 @@ and
 
 # srch_strings -a -t d -e l filesystem.img > strings.out
 # srch_strings_blk -i filesystem.img -s strings.out
-
-
