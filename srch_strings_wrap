@@ -513,7 +513,7 @@ sub get_partition_info {
 			last;
 		} elsif (m/^Units are in (\d+)-byte/) {
 			$$sector = $1;
-		} elsif (m/\s+(\d+):00\s+(\d+)\s+\d+\s+(\d+)/) {
+		} elsif (m/\s+(\d\d:\d\d)\s+(\d+)\s+\d+\s+(\d+)/) {
 			%$part_skip_ref->{$1} = $2;
 			%$part_count_ref->{$1} = $3;
 			$$img_type = "D";
